@@ -731,8 +731,8 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
             vbls3d = ['Theta','Salt','vorticity','steric_height', 'U', 'V']
             vbls2d = ['steric_height_true', 'Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
         else:
-            vbls3d = ['Theta','Salt']
-            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
+            vbls3d = ['Theta','Salt', 'U', 'V']
+            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
         
         
         # loop through 3d variables & interpolate:
