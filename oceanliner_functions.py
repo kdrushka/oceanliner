@@ -398,8 +398,8 @@ def set_defaults(sampling_details):
     defaults = {}
     # default values depend on the sampling type
     # typical speeds and depth ranges based on platform 
-    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
-    if SAMPLING_PLATFORM == 'uctd':
+    PLATFORM = sampling_details['PLATFORM']
+    if PLATFORM == 'uctd':
         # typical values for uctd sampling:
         defaults['zrange'] = [-5, -500] # depth range of profiles (down is negative)
         defaults['z_res'] = 1 # the vertical sampling rate in meters
@@ -407,33 +407,33 @@ def set_defaults(sampling_details):
         defaults['vspeed'] = 1 # platform vertical (profile) speed in m/s 
         defaults['PATTERN'] = 'lawnmower'
         defaults['AT_END'] = 'terminate'  # behaviour at and of trajectory: 'repeat', 'reverse', or 'terminate'
-    elif SAMPLING_PLATFORM == 'glider':
+    elif PLATFORM == 'glider':
         defaults['zrange'] = [-1, -1000] # depth range of profiles (down is negative)
         defaults['z_res'] = 1 # the vertical sampling rate in meters
         defaults['hspeed'] = 0.25 # platform horizontal speed in m/s
         defaults['vspeed'] = 0.1 # glider vertical (profile) speed in m/s     
         defaults['AT_END'] = 'terminate'  # behaviour at and of trajectory: 'repeat', 'reverse', or 'terminate'
         defaults['PATTERN'] = 'lawnmower'
-    elif SAMPLING_PLATFORM == 'wave_glider':
+    elif PLATFORM == 'wave_glider':
         defaults['zrange'] = [-1, -1.5] # depth range of profiles (down is negative)
         defaults['z_res'] = 0 # the vertical sampling rate in meters - zero for wave glider
         defaults['hspeed'] = 1 # platform horizontal speed in m/s
         defaults['vspeed'] = 0 # surface vehicle, no vertical motion  
         defaults['AT_END'] = 'terminate'  # behaviour at and of trajectory: 'repeat', 'reverse', or 'terminate'
         defaults['PATTERN'] = 'back-forth'
-    elif SAMPLING_PLATFORM == 'saildrone':
+    elif PLATFORM == 'saildrone':
         defaults['zrange'] = [-1, -3] # depth range of profiles (down is negative)
         defaults['z_res'] = 0 # the vertical sampling rate in meters - zero for saildrone
         defaults['hspeed'] = 2.57 # platform horizontal speed in m/s
         defaults['vspeed'] = 0 # surface vehicle, no vertical motion       
         defaults['AT_END'] = 'terminate'  # behaviour at and of trajectory: 'repeat', 'reverse', or 'terminate'
         defaults['PATTERN'] = 'back-forth'
-    elif SAMPLING_PLATFORM == 'mooring':
+    elif PLATFORM == 'mooring':
         defaults['WAYPOINTS'] = {'x':model_xav, 'y':model_yav}  # default lat/lon is the center of the domain
         defaults['zmooring'] = [-1, -10, -50, -100] # depth of T/S/U/V instruments
     else:
-        # if SAMPLING_PLATFORM not specified, return an error
-        print('error: SAMPLING_PLATFORM ' + SAMPLING_PLATFORM + ' invalid')
+        # if PLATFORM not specified, return an error
+        print('error: PLATFORM ' + PLATFORM + ' invalid')
         return -1
     
     #
@@ -496,7 +496,7 @@ def get_survey_track(ds, sampling_details_in):
     WAYPOINTS = sampling_details['WAYPOINTS']
     if not(WAYPOINTS):
         print('no waypoints specified - using defaults')
-        # define some reasonable sampling pattern within the domain based on SAMPLING_PLATFORM and PATTERN and AT_END
+        # define some reasonable sampling pattern within the domain based on PLATFORM and PATTERN and AT_END
         if sampling_details['PATTERN'] == 'lawnmower':
             # "mow the lawn" pattern - define all waypoints
             xwaypoints = model_boundary_w + 1 + [0, 0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2]
@@ -531,8 +531,8 @@ def get_survey_track(ds, sampling_details_in):
     
     
     # 3) define the x/y/z/t points to interpolate to
-    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
-    if SAMPLING_PLATFORM == 'mooring':
+    PLATFORM = sampling_details['PLATFORM']
+    if PLATFORM == 'mooring':
         # for moorings, location is fixed and a set of waypoints isn't needed
         ts = ds.time.values # in hours
         # same sampling for T/S/U/V 
@@ -650,7 +650,7 @@ def get_survey_track(ds, sampling_details_in):
         
     # ----- Assemble the xs/ys/zs/ts sampling locations into "survey_track" 
     # (same regardless of sampling strategy except "mooring")
-    if not SAMPLING_PLATFORM == 'mooring':
+    if not PLATFORM == 'mooring':
         # - true (lat/lon) coordinates:
         survey_track = xr.Dataset(
             dict(
@@ -662,7 +662,7 @@ def get_survey_track(ds, sampling_details_in):
             )
         )
         
-    elif SAMPLING_PLATFORM == 'mooring':
+    elif PLATFORM == 'mooring':
         # x/y/z don't change
         survey_track = xr.Dataset(
             dict(
@@ -684,8 +684,8 @@ def get_survey_track(ds, sampling_details_in):
     
     
     
-    # store SAMPLING_PLATFORM in survey_track so they can be used later
-    survey_track['SAMPLING_PLATFORM'] = SAMPLING_PLATFORM
+    # store PLATFORM in survey_track so they can be used later
+    survey_track['PLATFORM'] = PLATFORM
     return survey_track, survey_indices, sampling_details
  
     
@@ -713,8 +713,8 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
         
     ## Create a new dataset to contain the interpolated data, and interpolate
     # for 'mooring', skip this step entirely - return an empty array for 'subsampled_data'
-    SAMPLING_PLATFORM = survey_track['SAMPLING_PLATFORM']
-    if SAMPLING_PLATFORM == 'mooring':
+    PLATFORM = survey_track['PLATFORM']
+    if PLATFORM == 'mooring':
         subsampled_data = []
         
         # zgridded and times are simply zs, ta (i.e., don't interpolate to a finer grid than the mooring sampling gives)
@@ -827,7 +827,7 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
         print('Gridding the interpolated data...')
         
         # get times associated with profiles:
-        if SAMPLING_PLATFORM == 'sim_mooring':
+        if PLATFORM == 'sim_mooring':
             # - for mooring, use the subsampled time grid:
             times = np.unique(subsampled_data.time.values)
         else:
@@ -866,12 +866,12 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
             # for platforms with up & down profiles (uCTD and glider),
             # every second column is upside-down (upcast data)
             # starting with the first column, flip the data upside down so that upcasts go from top to bottom
-            if SAMPLING_PLATFORM != 'sim_mooring':
+            if PLATFORM != 'sim_mooring':
                 this_var_fix = this_var_reshape.copy()
                 #this_var_fix[:,0::2] = this_var_fix[-1::-1,0::2] 
                 this_var_fix[:,1::2] = this_var_fix[-1::-1,1::2]  # Starting with SECOND column
                 sgridded[vbl] = (("depth","time"), this_var_fix)
-            elif SAMPLING_PLATFORM == 'sim_mooring':
+            elif PLATFORM == 'sim_mooring':
                 sgridded[vbl] = (("depth","time"), this_var_reshape)                
                 
         if sampling_details['DERIVED_VARIABLES']:
@@ -896,7 +896,7 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
     # ------------ RETURN INTERPOLATED & GRIDDED DATA ------------
 
     # -- add variable attributes from ds
-    if SAMPLING_PLATFORM == 'mooring':
+    if PLATFORM == 'mooring':
         sgridded.attrs = ds.attrs
     else:
         # - find which variables in ds are also in our interpolated dataset:
