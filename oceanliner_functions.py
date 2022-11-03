@@ -145,7 +145,220 @@ def download_llc4320_data(RegionName, datadir, start_date, ndays):
                 print(' ---- error - skipping this file')
 
 
-def get_survey_track(ds, sampling_details):
+
+def compute_derived_fields(RegionName, datadir, start_date, ndays):
+    """ Check for derived files in {datadir}/derived and compute if the files don't exist
+
+
+    Args:
+        RegionName (str): It can be selected from the list of regions with pre-SWOT llc4320 data
+        datadir (str): Directory where input model files are stored
+        start_date (datetime): Starting date for computing derived fields
+        ndays (int): Number of days from the start date to compute derived fields
+
+    Returns:
+        None
+        
+    Raises: 
+        TBD: TBD
+
+    """
+    
+    # directory to save derived data to - create if doesn't exist
+    derivedir = datadir + 'derived/'
+    if not(os.path.isdir(derivedir)):
+        os.mkdir(derivedir)
+        
+    # files to load:
+    date_list = [start_date + timedelta(days=x) for x in range(ndays)]
+    target_files = [f'{datadir}LLC4320_pre-SWOT_{RegionName}_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+    
+    # list of derived files:
+    derived_files = [f'{derivedir}LLC4320_pre-SWOT_{RegionName}_derived-fields_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+
+        
+    # loop through input files, then do the following:
+    # - compute steric height
+    # - interpolate vector quantities (velocity and wind) to the tracer grid
+    # - compute vorticity
+    fis = range(len(target_files))
+    
+    cnt = 0 # count
+    for fi in fis:
+        # input filename:
+        thisf=target_files[fi]
+        # output filename:
+        fnout = thisf.replace(RegionName + '_' , RegionName + '_derived-fields_')
+        fnout = fnout.replace(RegionName + '/' , RegionName + '/derived/')
+        # check if output file already exists
+        if (not(os.path.isfile(fnout))):   
+            print('computing derived fields for', thisf) 
+            # load file:
+            ds = xr.open_dataset(thisf)
+            
+            # -------
+            # first time through the loop, load reference profile:
+            # load a single file to get coordinates
+            if cnt==0:
+                # mean lat/lon of domain
+                xav = ds.XC.isel(j=0).mean(dim='i')
+                yav = ds.YC.isel(i=0).mean(dim='j')
+
+                # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
+                # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
+                grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
+                             'Y':{'center': 'j', 'left': 'j_g'},
+                             'T':{'center': 'time'},
+                             'Z':{'center': 'k'}})
+                
+
+                # --- load reference file of argo data
+                # here we use the 3x3 annual mean Argo product on standard produced by IRPC & distributed by ERDDAP
+                # https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_defb_b79c_cb17.html
+                # - download the profile closest to xav,yav once (quick), use it, then delete it.
+                
+                # URL gets temp & salt at all levels
+                argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})]'
+                
+                # delete the argo file if it exists 
+                if os.path.isfile('argo_local.nc'):
+                    os.remove('argo_local.nc')
+                # use requests to get the file, and write locally:
+                r = requests.get(argofile)
+                file = open('argo_local.nc','wb')
+                file.write(r.content)
+                file.close()
+                # open the argo file:
+                argods = xr.open_dataset('argo_local.nc',decode_times=False)
+                # get rid of time coord/dim/variable, which screws up the time in ds if it's loaded
+                argods = argods.squeeze().reset_coords(names = {'time'}, drop=True) 
+                # reference profiles: annual average Argo T/S using nearest neighbor
+                Tref = argods["temp"]
+                Sref = argods["salt"]
+                # SA and CT from gsw:
+                # see example from https://discourse.pangeo.io/t/wrapped-for-dask-teos-10-gibbs-seawater-gsw-oceanographic-toolbox/466
+                Pref = xr.apply_ufunc(sw.p_from_z, -argods.LEV, yav)
+                Pref.compute()
+                SAref = xr.apply_ufunc(sw.SA_from_SP, Sref, Pref, xav, yav,
+                                       dask='parallelized', output_dtypes=[Sref.dtype])
+                SAref.compute()
+                CTref = xr.apply_ufunc(sw.CT_from_pt, Sref, Tref, # Theta is potential temperature
+                                       dask='parallelized', output_dtypes=[Sref.dtype])
+                CTref.compute()
+                Dref = xr.apply_ufunc(sw.density.rho, SAref, CTref, Pref,
+                                    dask='parallelized', output_dtypes=[Sref.dtype])
+                Dref.compute()
+                
+                
+                cnt = cnt+1
+                print()
+                
+            # -------
+            
+            # --- COMPUTE STERIC HEIGHT IN STEPS ---
+            # 0. create datasets for variables of interest:
+            ss = ds.Salt
+            tt = ds.Theta
+            pp = xr.DataArray(sw.p_from_z(ds.Z,ds.YC))
+            
+            # 1. compute absolute salinity and conservative temperature
+            sa = xr.apply_ufunc(sw.SA_from_SP, ss, pp, xav, yav, dask='parallelized', output_dtypes=[ss.dtype])
+            sa.compute()
+            ct = xr.apply_ufunc(sw.CT_from_pt, sa, tt, dask='parallelized', output_dtypes=[ss.dtype])
+            ct.compute()
+            dd = xr.apply_ufunc(sw.density.rho, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
+            dd.compute()
+            # 2. compute specific volume anomaly: gsw.density.specvol_anom_standard(SA, CT, p)
+            sva = xr.apply_ufunc(sw.density.specvol_anom_standard, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
+            sva.compute()
+            # 3. compute steric height = integral(0:z1) of Dref(z)*sva(z)*dz(z)
+            # - first, interpolate Dref to the model pressure levels
+            Drefi = Dref.interp(LEV=-ds.Z)
+            dz = -ds.Z_bnds.diff(dim='nb').drop_vars('nb').squeeze() # distance between interfaces
+
+            # steric height computation (summation/integral)
+            # - increase the size of Drefi and dz to match the size of sva
+            Db = Drefi.broadcast_like(sva)
+            dzb = dz.broadcast_like(sva)
+            dum = Db * sva * dzb
+            sh = dum.cumsum(dim='k') 
+            # this gives sh as a 3-d variable, (where the depth dimension 
+            # represents the deepest level from which the specific volume anomaly was interpolated)
+            # - but in reality we just want the SH that was determined by integrating over
+            # the full survey depth, which gives a 2-d output:
+            sh_true = dum.sum(dim='k') 
+            
+            # --- COMPUTE VORTICITY using xgcm and interpolate to X, Y
+            # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
+            vorticity = (grid.diff(ds.V*ds.DXG, 'X') - grid.diff(ds.U*ds.DYG, 'Y'))/ds.RAZ
+            vorticity = grid.interp(grid.interp(vorticity, 'X', boundary='extend'), 'Y', boundary='extend')
+            
+     
+            # --- save derived fields in a new file
+            # - convert sh and zeta to datasets
+            # NOTE can do this more efficiently in a single line w/out converting to dataset???
+            dout = vorticity.to_dataset(name='vorticity')
+            sh_ds = sh.to_dataset(name='steric_height')
+            dout = dout.merge(sh_ds)
+            sh_true_ds = sh_true.to_dataset(name='steric_height_true')
+            dout = dout.merge(sh_true_ds)
+             
+            # add/rename the Argo reference profile variables to dout:
+            tref = Tref.to_dataset(name='Tref')
+            tref = tref.merge(Sref).rename({'salt': 'Sref'}).\
+                rename({'LEV':'zref','latitude':'yav','longitude':'xav'})
+            # - add ref profiles to dout and drop uneeded vars/coords
+            dout = dout.merge(tref).drop_vars({'longitude','latitude','LEV'})
+  
+    
+            # - add attributes for all variables
+            dout.steric_height.attrs = {'long_name' : 'Steric height',
+                                    'units' : 'm',
+                                    'comments_1' : 'Computed by integrating the specific volume anomaly (SVA) multiplied by a reference density, where the reference density profile is calculated from temperature & salinity profiles from the APDRC 3x3deg gridded Argo climatology product (accessed through ERDDAP). The profile nearest to the center of the domain is selected, and T & S profiles are averaged over one year before computing ref density. SVA is computed from the model T & S profiles. the Gibbs Seawater Toolbox is used compute reference density and SVA. steric_height is given at all depth levels (dep): steric_height at a given depth represents steric height signal generated by the water column above that depth - so the deepest steric_height value represents total steric height (and is saved in steric_height_true'
+                                       }
+            dout.steric_height_true.attrs = dout.steric_height.attrs
+            
+            dout.vorticity.attrs = {'long_name' : 'Vertical component of the vorticity',
+                                    'units' : 's-1',
+                                    'comments_1' : 'computed on DXG,DYG then interpolated to X,Y'}         
+               
+            
+            dout.Tref.attrs = {'long_name' : f'Reference temperature profile at {yav.data}N,{xav.data}E',
+                                    'units' : 'degree_C',
+                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
+            dout.Sref.attrs = {'long_name' : f'Reference salinity profile at {yav.data}N,{xav.data}E',
+                                    'units' : 'psu',
+                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
+            
+            dout.zref.attrs = {'long_name' : f'Reference depth for Tref and Sref',
+                                    'units' : 'm',
+                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
+            
+            
+            # - save netcdf file with derived fields
+            netcdf_fill_value = nc4.default_fillvals['f4']
+            dv_encoding = {}
+            for dv in dout.data_vars:
+                dv_encoding[dv]={'zlib':True,  # turns compression on\
+                            'complevel':1,     # 1 = fastest, lowest compression; 9=slowest, highest compression \
+                            'shuffle':True,    # shuffle filter can significantly improve compression ratios, and is on by default \
+                            'dtype':'float32',\
+                            '_FillValue':netcdf_fill_value}
+            # save to a new file
+            print(' ... saving to ', fnout)
+            # TROUBLESHOOTING::::: DELETE THE RETURN LINE
+            #return dout, dv_encoding
+            dout.to_netcdf(fnout,format='netcdf4',encoding=dv_encoding)
+
+            
+            
+            # release & delete Argo file
+            argods.close()
+#             os.remove('argo_local.nc')
+
+
+    
+def set_defaults(sampling_details):
     
     """Calculates the survey indices and track based on the sampling details for the dataset for all days.
 
@@ -160,41 +373,17 @@ def get_survey_track(ds, sampling_details):
         sampling_details (dict): Returns the modified sampling_details by filling in the missing parameters with defaults.
         
     Raises: 
-        Sampling strategy is invalid: If a sampling strategy is not specified or different from the available strategies - sim_utcd, glider, sim_mooring, wave_glider, saildrone
+        Sampling strategy is invalid: If a sampling strategy is not specified or different from the available strategies - sim_utcd, sim_glider, sim_mooring, wave_glider, sail_drone
     
 
-    """
-    
-    survey_time_total = (ds.time.values.max() - ds.time.values.min()) # (timedelta) - limits the survey to a total time
-    survey_end_time = ds.time.isel(time=0).data + survey_time_total # end time of survey
-    # Convert lon, lat and z to index i, j and k with f_x, f_y and f_z
-    # XC, YC and Z are the same at all times, so select a single time
-    X = ds.XC.isel(time=0) 
-    Y = ds.YC.isel(time=0)
-    i = ds.i
-    j = ds.j
-    z = ds.Z.isel(time=0)
-    k = ds.k
-    f_x = interpolate.interp1d(X[0,:].values, i)
-    f_y = interpolate.interp1d(Y[:,0].values, j)
-    f_z = interpolate.interp1d(z, k, bounds_error=False)
-
-    # Get boundaries and center of model region
-    model_boundary_n = Y.max().values
-    model_boundary_s = Y.min().values
-    model_boundary_w = X.min().values
-    model_boundary_e = X.max().values
-    model_xav = ds.XC.isel(time=0, j=0).mean(dim='i').values
-    model_yav = ds.YC.isel(time=0, i=0).mean(dim='j').values
-    # --------- define sampling -------
-    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
-    
+    """       
     
     # ------ default sampling parameters: in the dict named "defaults" -----
     # these are used when these parameters are not specified by the user
     defaults = {}
     # default values depend on the sampling type
     # typical speeds and depth ranges based on platform 
+    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
     if SAMPLING_PLATFORM == 'uctd':
         # typical values for uctd sampling:
         defaults['zrange'] = [-5, -500] # depth range of profiles (down is negative)
@@ -234,6 +423,7 @@ def get_survey_track(ds, sampling_details):
         defaults['xwaypoints'] = traj.xwaypoints.values
         defaults['ywaypoints'] = traj.ywaypoints.values
         defaults['zrange'] = traj.zrange.values # depth range of profiles (down is negative)
+        defaults['z_res'] = 0 # the vertical sampling rate in meters
         defaults['hspeed'] = traj.hspeed.values # platform horizontal speed in m/s
         defaults['vspeed'] = traj.vspeed.values # platform vertical (profile) speed in m/s
         defaults['PATTERN'] = traj.attrs['pattern']
@@ -248,8 +438,58 @@ def get_survey_track(ds, sampling_details):
     # merge defaults & sampling_details
     # - by putting sampling_details second, items that appear in both dicts are taken from sampling_details: 
     sampling_details = {**defaults, **sampling_details}
+    return sampling_details
+    
+    
+def get_survey_track(ds, sampling_details_in):
+    
+    """Calculates the survey indices and track based on the sampling details for the dataset for all days.
 
-    # ----- define x/y/z/t points to interpolate to
+
+    Args:
+        ds (xarray.core.dataset.Dataset): MITgcm LLC4320 data for all days
+        sampling_details_in (dict): It includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the                                      case where user specfies only some of the details the default values will be used for rest.
+
+    Returns:
+        survey_track (xarray.core.dataset.Dataset): Returns the track (lat, lon, depth, time) of the sampling trajectory based on the type of sampling                               
+        survey_indices (xarray.core.dataset.Dataset): Returns the indices (i, j, k, time) of the sampling trajectory based on the type of sampling
+        sampling_details (dict): Returns the modified sampling_details by filling in the missing parameters with defaults.
+        
+    Raises: 
+        Sampling strategy is invalid: If a sampling strategy is not specified or different from the available strategies - sim_utcd, glider, sim_mooring, wave_glider, saildrone
+    
+
+    """
+    
+    survey_time_total = (ds.time.values.max() - ds.time.values.min()) # (timedelta) - limits the survey to a total time
+    survey_end_time = ds.time.isel(time=0).data + survey_time_total # end time of survey
+    # Convert lon, lat and z to index i, j and k with f_x, f_y and f_z
+    # XC, YC and Z are the same at all times, so select a single time
+    X = ds.XC.isel(time=0) 
+    Y = ds.YC.isel(time=0)
+    i = ds.i
+    j = ds.j
+    z = ds.Z.isel(time=0)
+    k = ds.k
+    f_x = interpolate.interp1d(X[0,:].values, i)
+    f_y = interpolate.interp1d(Y[:,0].values, j)
+    f_z = interpolate.interp1d(z, k, bounds_error=False)
+
+    # Get boundaries and center of model region
+    model_boundary_n = Y.max().values
+    model_boundary_s = Y.min().values
+    model_boundary_w = X.min().values
+    model_boundary_e = X.max().values
+    model_xav = ds.XC.isel(time=0, j=0).mean(dim='i').values
+    model_yav = ds.YC.isel(time=0, i=0).mean(dim='j').values
+    
+    # --------- define sampling, i.e., the x/y/z/t points to interpolate to
+    #  first, call the set_defaults function, which sets details that have not been specified by the user
+    #  and stores the correct and complete sampling_details
+    sampling_details = set_defaults(sampling_details_in)
+    
+    # next, based on the specified sampling details, define the x/y/z/t points to interpolate to
+    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
     if SAMPLING_PLATFORM == 'mooring':
         # for moorings, location is fixed so a set of waypoints is not needed.
         # so skip the step of interpolating to "points" and interpolate directly to the new x/y/t/z 
@@ -298,9 +538,8 @@ def get_survey_track(ds, sampling_details):
             ywaypoints = np.append(ywaypoints, ywaypoints[0])                
         
         # vertical resolution
-        # for now, use a constant  vertical resolution (NOTE: could make this a variable)
-        #if ((SAMPLING_PLATFORM != 'wave_glider') and (SAMPLING_PLATFORM != 'saildrone')): 
-        zresolution = 1 # meters
+        # XXX CHECK z_res=1000........print error!
+        zresolution = sampling_details['z_res'] # in meters
         # max depth can't be deeper than the max model depth in this region
         # (note, this code is not aware enough to look at the local depth for each profile or dive)
         sampling_details['zrange'][1] = -np.min([-sampling_details['zrange'][1], ds.Depth.isel(time=1).max(...).values])        
@@ -500,17 +739,13 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
 
         # loop through 2d variables & interpolate:
         # create 2-d survey track by removing the depth dimension
-        survey_indices_2d =  survey_indices.drop_vars('k')
-           
-        
-        
+        survey_indices_2d =  survey_indices.drop_vars('k')    
         for vbl in vbls2d:
             print(vbl)
             sgridded[vbl]=ds[vbl].interp(survey_indices_2d).compute()
             
         
-        # clean up sgridded: get rid of the dims we don't need and rename coords
-        
+        # clean up sgridded: get rid of the dims we don't need and rename coords        
         if sampling_details['DERIVED_VARIABLES']:
             sgridded = sgridded.reset_coords(names = {'i', 'j', 'k'}).squeeze().rename_vars({'xav' : 'lon','yav' : 'lat'}).drop_vars(names={'i', 'j', 'k'})
         
@@ -538,15 +773,12 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
             vbls2d = ['steric_height_true', 'Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
         else:
             vbls3d = ['Theta','Salt']
-            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
-        
+            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']        
         
         print('Interpolating model fields to the sampling track...')
         # loop & interpolate through 3d variables:
         for vbl in vbls3d:
-            subsampled_data[vbl]=ds[vbl].interp(survey_indices)
-
-       
+            subsampled_data[vbl]=ds[vbl].interp(survey_indices)       
 
         # loop & interpolate through 2d variables:
         # create 2-d survey track by removing the depth dimension
@@ -560,8 +792,6 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
         # make xav and yav variables instead of coords, and rename
         if sampling_details['DERIVED_VARIABLES']:
             subsampled_data = subsampled_data.reset_coords(names = {'xav','yav'}).rename_vars({'xav' : 'lon_average','yav' : 'lat_average'})
-
-
             
         
         if sampling_details['SAVE_PRELIMINARY']:
@@ -586,15 +816,12 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
                         'dtype':'float32',\
                         '_FillValue':netcdf_fill_value}
             # save to a new file
-            subsampled_data.to_netcdf(filename_out,format='netcdf4')
-            
+            subsampled_data.to_netcdf(filename_out,format='netcdf4')            
             
             
         # -----------------------------------------------------------------------------------
         # ------Regrid the data to depth/time (3-d fields) or subsample to time (2-d fields)
         print('Gridding the interpolated data...')
-        
-             
         
         # get times associated with profiles:
         if SAMPLING_PLATFORM == 'sim_mooring':
@@ -623,8 +850,7 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
                       time=(["time"],times))
         )
         # -- 3-d fields: loop & reshape 3-d data from profiles to a 2-d (depth-time) grid:
-        # first, extract each variable, then reshape to a grid
-        
+        # first, extract each variable, then reshape to a grid        
         for vbl in vbls3d:
             print(f'  {vbl}')
             if sampling_details['SAVE_PRELIMINARY']:
@@ -643,15 +869,13 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
                 this_var_fix[:,1::2] = this_var_fix[-1::-1,1::2]  # Starting with SECOND column
                 sgridded[vbl] = (("depth","time"), this_var_fix)
             elif SAMPLING_PLATFORM == 'sim_mooring':
-                sgridded[vbl] = (("depth","time"), this_var_reshape)
-                
+                sgridded[vbl] = (("depth","time"), this_var_reshape)                
                 
         if sampling_details['DERIVED_VARIABLES']:
             # for sampled steric height, we want the value integrated from the deepest sampling depth:
             sgridded['steric_height'] = (("time"), sgridded['steric_height'].isel(depth=nz-1).data)
             # rename to "steric_height_sampled" for clarity
             sgridded.rename_vars({'steric_height':'steric_height_sampled'})
-
   
 
         #  -- 2-d fields: loop & reshape 2-d data to the same time grid 
@@ -711,256 +935,4 @@ def great_circle(lon1, lat1, lon2, lat2):
     return 6371 * (acos(sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon1 - lon2)))
 
 
-def compute_derived_fields(RegionName, datadir, start_date, ndays):
-    """ Check for derived files in {datadir}/derived and compute if the files don't exist
-
-
-    Args:
-        RegionName (str): It can be selected from the list of regions with pre-SWOT llc4320 data
-        datadir (str): Directory where input model files are stored
-        start_date (datetime): Starting date for computing derived fields
-        ndays (int): Number of days from the start date to compute derived fields
-
-    Returns:
-        None
-        
-    Raises: 
-        TBD: TBD
-
-    """
-    
-    # directory to save derived data to - create if doesn't exist
-    derivedir = datadir + 'derived/'
-    if not(os.path.isdir(derivedir)):
-        os.mkdir(derivedir)
-        
-    # files to load:
-    date_list = [start_date + timedelta(days=x) for x in range(ndays)]
-    target_files = [f'{datadir}LLC4320_pre-SWOT_{RegionName}_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
-    
-    # list of derived files:
-    derived_files = [f'{derivedir}LLC4320_pre-SWOT_{RegionName}_derived-fields_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
-
-        
-    # loop through input files, then do the following:
-    # - compute steric height
-    # - interpolate vector quantities (velocity and wind) to the tracer grid
-    # - rotate vectoor quantities to the geophysical (east/north) grid 
-    # - compute vorticity (on the transformed grid)
-    fis = range(len(target_files))
-    
-    cnt = 0 # count
-    for fi in fis:
-        # input filename:
-        thisf=target_files[fi]
-        # output filename:
-        fnout = thisf.replace(RegionName + '_' , RegionName + '_derived-fields_')
-        fnout = fnout.replace(RegionName + '/' , RegionName + '/derived/')
-        # check if output file already exists
-        if (not(os.path.isfile(fnout))):   
-            print('computing derived fields for', thisf) 
-            # load file:
-            ds = xr.open_dataset(thisf)
-            
-            # -------
-            # first time through the loop, load reference profile:
-            # load a single file to get coordinates
-            if cnt==0:
-                # mean lat/lon of domain
-                xav = ds.XC.isel(j=0).mean(dim='i')
-                yav = ds.YC.isel(i=0).mean(dim='j')
-
-                # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
-                # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
-                grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
-                             'Y':{'center': 'j', 'left': 'j_g'},
-                             'T':{'center': 'time'},
-                             'Z':{'center': 'k'}})
-                
-
-                # --- load reference file of argo data
-                # here we use the 3x3 annual mean Argo product on standard produced by IRPC & distributed by ERDDAP
-                # https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_defb_b79c_cb17.html
-                # - download the profile closest to xav,yav once (quick), use it, then delete it.
-                
-                # URL gets temp & salt at all levels
-                argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})]'
-                
-                # delete the argo file if it exists 
-                if os.path.isfile('argo_local.nc'):
-                    os.remove('argo_local.nc')
-                # use requests to get the file, and write locally:
-                r = requests.get(argofile)
-                file = open('argo_local.nc','wb')
-                file.write(r.content)
-                file.close()
-                # open the argo file:
-                argods = xr.open_dataset('argo_local.nc',decode_times=False)
-                # get rid of time coord/dim/variable, which screws up the time in ds if it's loaded
-                argods = argods.squeeze().reset_coords(names = {'time'}, drop=True) 
-                # reference profiles: annual average Argo T/S using nearest neighbor
-                Tref = argods["temp"]
-                Sref = argods["salt"]
-                # SA and CT from gsw:
-                # see example from https://discourse.pangeo.io/t/wrapped-for-dask-teos-10-gibbs-seawater-gsw-oceanographic-toolbox/466
-                Pref = xr.apply_ufunc(sw.p_from_z, -argods.LEV, yav)
-                Pref.compute()
-                SAref = xr.apply_ufunc(sw.SA_from_SP, Sref, Pref, xav, yav,
-                                       dask='parallelized', output_dtypes=[Sref.dtype])
-                SAref.compute()
-                CTref = xr.apply_ufunc(sw.CT_from_pt, Sref, Tref, # Theta is potential temperature
-                                       dask='parallelized', output_dtypes=[Sref.dtype])
-                CTref.compute()
-                Dref = xr.apply_ufunc(sw.density.rho, SAref, CTref, Pref,
-                                    dask='parallelized', output_dtypes=[Sref.dtype])
-                Dref.compute()
-                
-                
-                cnt = cnt+1
-                print()
-                
-            # -------
-            
-            # --- COMPUTE STERIC HEIGHT IN STEPS ---
-            # 0. create datasets for variables of interest:
-            ss = ds.Salt
-            tt = ds.Theta
-            pp = xr.DataArray(sw.p_from_z(ds.Z,ds.YC))
-            
-            # 1. compute absolute salinity and conservative temperature
-            sa = xr.apply_ufunc(sw.SA_from_SP, ss, pp, xav, yav, dask='parallelized', output_dtypes=[ss.dtype])
-            sa.compute()
-            ct = xr.apply_ufunc(sw.CT_from_pt, sa, tt, dask='parallelized', output_dtypes=[ss.dtype])
-            ct.compute()
-            dd = xr.apply_ufunc(sw.density.rho, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
-            dd.compute()
-            # 2. compute specific volume anomaly: gsw.density.specvol_anom_standard(SA, CT, p)
-            sva = xr.apply_ufunc(sw.density.specvol_anom_standard, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
-            sva.compute()
-            # 3. compute steric height = integral(0:z1) of Dref(z)*sva(z)*dz(z)
-            # - first, interpolate Dref to the model pressure levels
-            Drefi = Dref.interp(LEV=-ds.Z)
-            dz = -ds.Z_bnds.diff(dim='nb').drop_vars('nb').squeeze() # distance between interfaces
-
-            # steric height computation (summation/integral)
-            # - increase the size of Drefi and dz to match the size of sva
-            Db = Drefi.broadcast_like(sva)
-            dzb = dz.broadcast_like(sva)
-            dum = Db * sva * dzb
-            sh = dum.cumsum(dim='k') 
-            # this gives sh as a 3-d variable, (where the depth dimension 
-            # represents the deepest level from which the specific volume anomaly was interpolated)
-            # - but in reality we just want the SH that was determined by integrating over
-            # the full survey depth, which gives a 2-d output:
-            sh_true = dum.sum(dim='k') 
-            
-            # --- COMPUTE VORTICITY using xgcm and interpolate to X, Y
-            # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
-            vorticity = (grid.diff(ds.V*ds.DXG, 'X') - grid.diff(ds.U*ds.DYG, 'Y'))/ds.RAZ
-            vorticity = grid.interp(grid.interp(vorticity, 'X', boundary='extend'), 'Y', boundary='extend')
-            
-            
-
-            # --- ROTATE AND TRANSFORM VECTOR QUANTITIES ---
-            # interpolate U,V and oceTAUX, oceTAUY to the tracer grid
-            # and rotate them to geophysical (east, north) coordinates instead of model ones:
-            # 1) regrid 
-            print('interpolating to tracer grid')
-            U_c = grid.interp(ds.U, 'X', boundary='extend')
-            V_c = grid.interp(ds.V, 'Y', boundary='extend')
-            # do the same for TAUX and TAUY:
-            oceTAUX_c = grid.interp(ds.oceTAUX, 'X', boundary='extend')
-            oceTAUY_c = grid.interp(ds.oceTAUY, 'Y', boundary='extend')
-
-            # 2) rotate U and V, and taux and tauy, using rotate_vector_to_EN:
-            print('rotating to east/north')
-            U_transformed, V_transformed = rotate_vector_to_EN(U_c, V_c, ds['AngleCS'], ds['AngleSN'])
-            oceTAUX_transformed, oceTAUY_transformed = rotate_vector_to_EN(oceTAUX_c, oceTAUY_c, ds['AngleCS'], ds['AngleSN'])
-
-            # --- save derived fields in a new file
-            # - convert sh and zeta to datasets
-            # NOTE can do this more efficiently in a single line w/out converting to dataset???
-            dout = vorticity.to_dataset(name='vorticity')
-            sh_ds = sh.to_dataset(name='steric_height')
-            dout = dout.merge(sh_ds)
-            sh_true_ds = sh_true.to_dataset(name='steric_height_true')
-            dout = dout.merge(sh_true_ds)
-            U_transformed_ds = U_transformed.to_dataset(name='U_transformed')
-            V_transformed_ds = V_transformed.to_dataset(name='V_transformed')
-            oceTAUX_transformed_ds = oceTAUX_transformed.to_dataset(name='oceTAUX_transformed')
-            oceTAUY_transformed_ds = oceTAUY_transformed.to_dataset(name='oceTAUY_transformed')
-            dout = dout.merge(U_transformed_ds).merge(V_transformed_ds)
-            dout = dout.merge(oceTAUX_transformed_ds).merge(oceTAUY_transformed_ds)
-            
-            
-            
-            # add/rename the Argo reference profile variables to dout:
-            tref = Tref.to_dataset(name='Tref')
-            tref = tref.merge(Sref).rename({'salt': 'Sref'}).\
-                rename({'LEV':'zref','latitude':'yav','longitude':'xav'})
-            # - add ref profiles to dout and drop uneeded vars/coords
-            dout = dout.merge(tref).drop_vars({'longitude','latitude','LEV'})
-  
-    
-            # - add attributes for all variables
-            dout.steric_height.attrs = {'long_name' : 'Steric height',
-                                    'units' : 'm',
-                                    'comments_1' : 'Computed by integrating the specific volume anomaly (SVA) multiplied by a reference density, where the reference density profile is calculated from temperature & salinity profiles from the APDRC 3x3deg gridded Argo climatology product (accessed through ERDDAP). The profile nearest to the center of the domain is selected, and T & S profiles are averaged over one year before computing ref density. SVA is computed from the model T & S profiles. the Gibbs Seawater Toolbox is used compute reference density and SVA. steric_height is given at all depth levels (dep): steric_height at a given depth represents steric height signal generated by the water column above that depth - so the deepest steric_height value represents total steric height (and is saved in steric_height_true'
-                                       }
-            dout.steric_height_true.attrs = dout.steric_height.attrs
-            
-            dout.vorticity.attrs = {'long_name' : 'Vertical component of the vorticity',
-                                    'units' : 's-1',
-                                    'comments_1' : 'computed on DXG,DYG then interpolated to X,Y'}
-            
-            dout.U_transformed.attrs['long_name'] = "Horizontal velocity in the eastward direction"
-            dout.U_transformed.attrs['comments_1'] = "Horizontal velocity in the eastward direction at the center of the tracer cell on the native model grid."
-            dout.U_transformed.attrs['comments_3'] = "Note: this has been transformed to the tracer grid and rotated to geophysical coordinates."
-
-            dout.V_transformed.attrs['long_name'] = "Horizontal velocity in the northward direction"
-            dout.V_transformed.attrs['comments_1'] = "Horizontal velocity in the northward direction at the center of the tracer cell on the native model grid."
-            dout.V_transformed.attrs['comments_3'] = "Note: this has been transformed to the tracer grid and rotated to geophysical coordinates."
-
-            dout.oceTAUX_transformed.attrs['long_name'] = "Ocean surface stress in the eastward direction"
-            dout.oceTAUX_transformed.attrs['comments_1'] = "Ocean surface stress due to wind and sea-ice in the eastward direction centered over the the native model grid"
-            dout.oceTAUX_transformed.attrs['comments_3'] = "Note: this has been transformed to the tracer grid and rotated to geophysical coordinates."
-
-            dout.oceTAUY_transformed.attrs['long_name'] = "Ocean surface stress in the northward direction"
-            dout.oceTAUY_transformed.attrs['comments_1'] = "Ocean surface stress due to wind and sea-ice in the northward direction centered over the the native model grid"
-            dout.oceTAUY_transformed.attrs['comments_3'] = "Note: this has been transformed to the tracer grid and rotated to geophysical coordinates."
-            
-            
-            
-            dout.Tref.attrs = {'long_name' : f'Reference temperature profile at {yav.data}N,{xav.data}E',
-                                    'units' : 'degree_C',
-                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
-            dout.Sref.attrs = {'long_name' : f'Reference salinity profile at {yav.data}N,{xav.data}E',
-                                    'units' : 'psu',
-                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
-            
-            dout.zref.attrs = {'long_name' : f'Reference depth for Tref and Sref',
-                                    'units' : 'm',
-                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
-            
-            
-            # - save netcdf file with derived fields
-            netcdf_fill_value = nc4.default_fillvals['f4']
-            dv_encoding = {}
-            for dv in dout.data_vars:
-                dv_encoding[dv]={'zlib':True,  # turns compression on\
-                            'complevel':1,     # 1 = fastest, lowest compression; 9=slowest, highest compression \
-                            'shuffle':True,    # shuffle filter can significantly improve compression ratios, and is on by default \
-                            'dtype':'float32',\
-                            '_FillValue':netcdf_fill_value}
-            # save to a new file
-            print(' ... saving to ', fnout)
-            # TROUBLESHOOTING::::: DELETE THE RETURN LINE
-            #return dout, dv_encoding
-            dout.to_netcdf(fnout,format='netcdf4',encoding=dv_encoding)
-
-            
-            
-            # release & delete Argo file
-            argods.close()
-#             os.remove('argo_local.nc')
 
