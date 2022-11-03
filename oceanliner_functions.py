@@ -40,6 +40,10 @@ import netCDF4 as nc4
 # - compute_derived_fields
 
 
+# NOTE: Code to download data from PO.DAAC adapted from this demo : https://github.com/podaac/tutorials/blob/master/notebooks/Pre-SWOT_Numerical_Simulation_Demo.ipynb by Jinbo Wang & Jack McNelis (JPL) 
+
+
+
 def setup_earthdata_login_auth(endpoint: str='urs.earthdata.nasa.gov'):
     """Set up the the Earthdata login authorization for downloading data.
 
@@ -425,19 +429,8 @@ def set_defaults(sampling_details):
         defaults['AT_END'] = 'terminate'  # behaviour at and of trajectory: 'repeat', 'reverse', or 'terminate'
         defaults['PATTERN'] = 'back-forth'
     elif SAMPLING_PLATFORM == 'mooring':
-        defaults['xmooring'] = model_xav # default lat/lon is the center of the domain
-        defaults['ymooring'] = model_yav
+        defaults['WAYPOINTS'] = {'x':model_xav, 'y':model_yav}  # default lat/lon is the center of the domain
         defaults['zmooring'] = [-1, -10, -50, -100] # depth of T/S/U/V instruments
-    elif SAMPLING_PLATFORM == 'trajectory_file':
-        # load file
-        traj = xr.open_dataset(sampling_details['trajectory_file'])
-        defaults['xwaypoints'] = traj.xwaypoints.values
-        defaults['ywaypoints'] = traj.ywaypoints.values
-        defaults['zrange'] = traj.zrange.values # depth range of profiles (down is negative)
-        defaults['z_res'] = 0 # the vertical sampling rate in meters
-        defaults['hspeed'] = traj.hspeed.values # platform horizontal speed in m/s
-        defaults['vspeed'] = traj.vspeed.values # platform vertical (profile) speed in m/s
-        defaults['PATTERN'] = traj.attrs['pattern']
     else:
         # if SAMPLING_PLATFORM not specified, return an error
         print('error: SAMPLING_PLATFORM ' + SAMPLING_PLATFORM + ' invalid')
@@ -495,43 +488,23 @@ def get_survey_track(ds, sampling_details_in):
     model_yav = ds.YC.isel(time=0, i=0).mean(dim='j').values
     
     # --------- define sampling, i.e., the x/y/z/t points to interpolate to
-    #  first, call the set_defaults function, which sets details that have not been specified by the user
+    #  1) call the set_defaults function, which sets details that have not been specified by the user
     #  and stores the correct and complete sampling_details
     sampling_details = set_defaults(sampling_details_in)
     
-    # next, based on the specified sampling details, define the x/y/z/t points to interpolate to
-    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
-    if SAMPLING_PLATFORM == 'mooring':
-        # for moorings, location is fixed so a set of waypoints is not needed.
-        # so skip the step of interpolating to "points" and interpolate directly to the new x/y/t/z 
-        ts = ds.time.values # in hours
-        # same sampling for T/S/U/V 
-        zs = sampling_details['zmooring'] 
-        xs = sampling_details['xmooring']
-        ys = sampling_details['ymooring']
-        # if any of these are empty, revert to the defaults
-        if not(xmooring): 
-            xmooring = defaults['xmooring']
-        if not(ymooring): 
-            ymooring = defaults['ymooring'] 
-        if not(zmooring): 
-            zmooring = defaults['zmooring'] 
-    else:
-        # --- if not a mooring, define waypoints  
-        
-        # define x & y waypoints and z range
-        # xwaypoints & ywaypoints must have the same size
+    # 2) get the waypoints:
+    WAYPOINTS = sampling_details['WAYPOINTS']
+    if not(WAYPOINTS):
+        print('no waypoints specified - using defaults')
+        # define some reasonable sampling pattern within the domain based on SAMPLING_PLATFORM and PATTERN and AT_END
         if sampling_details['PATTERN'] == 'lawnmower':
             # "mow the lawn" pattern - define all waypoints
-            if not(SAMPLING_PLATFORM == 'trajectory_file'):
-                # generalize the survey for this region
-                xwaypoints = model_boundary_w + 1 + [0, 0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2]
-                ywaypoints = model_boundary_s + [1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2]
+            xwaypoints = model_boundary_w + 1 + [0, 0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2]
+            ywaypoints = model_boundary_s + [1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2]
         elif sampling_details['PATTERN'] == 'back-forth':
-            if not(SAMPLING_PLATFORM == 'trajectory_file'):
-                # repeated back & forth transects - define the end-points
-                xwaypoints = model_xav + [-1, 1]
-                ywaypoints = model_yav + [-1, 1]
+            # repeated back & forth transects - define the end-points
+            xwaypoints = model_xav + [-1, 1]
+            ywaypoints = model_yav + [-1, 1]
             # repeat waypoints based on total # of transects: 
             dkm_per_transect = great_circle(xwaypoints[0], ywaypoints[0], xwaypoints[1], ywaypoints[1]) # distance of one transect in km
 #           # time per transect, seconds, as a np.timedelta64 value
@@ -540,16 +513,35 @@ def get_survey_track(ds, sampling_details_in):
             for n in np.arange(num_transects):
                 xwaypoints = np.append(xwaypoints, xwaypoints[-2])
                 ywaypoints = np.append(ywaypoints, ywaypoints[-2])
-        if SAMPLING_PLATFORM == 'trajectory_file':
-            xwaypoints = sampling_details['xwaypoints']
-            ywaypoints = sampling_details['ywaypoints']
         # if the survey pattern repeats, add the first waypoint to the end of the list of waypoints:
         if sampling_details['AT_END'] == 'repeat': 
             xwaypoints = np.append(xwaypoints, xwaypoints[0])
-            ywaypoints = np.append(ywaypoints, ywaypoints[0])                
-        
+            ywaypoints = np.append(ywaypoints, ywaypoints[0])         
+    elif ['x' in WAYPOINTS]:
+        # x and y specified by the user
+        xwaypoints = WAYPOINTS['x']
+        ywaypoints = WAYPOINTS['y']
+    elif ['waypoint_file' in WAYPOINTS]:
+        # load file
+        waypoints = xr.open_dataset(WAYPOINTS['waypoint_file'])
+        xwaypoints = waypoints.xwaypoints.values
+        ywaypoints = waypoints.ywaypoints.values
+    
+               
+    
+    
+    # 3) define the x/y/z/t points to interpolate to
+    SAMPLING_PLATFORM = sampling_details['SAMPLING_PLATFORM']
+    if SAMPLING_PLATFORM == 'mooring':
+        # for moorings, location is fixed and a set of waypoints isn't needed
+        ts = ds.time.values # in hours
+        # same sampling for T/S/U/V 
+        zs = sampling_details['zmooring'] 
+        xs = xwaypoints
+        ys = ywaypoints
+    else:
         # vertical resolution
-        # XXX CHECK z_res=1000........print error!
+        # TODO: CHECK z_res=1000........print error!
         zresolution = sampling_details['z_res'] # in meters
         # max depth can't be deeper than the max model depth in this region
         # (note, this code is not aware enough to look at the local depth for each profile or dive)
@@ -923,22 +915,15 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
 
 # great circle distance (from Jake Steinberg) 
 def great_circle(lon1, lat1, lon2, lat2):
-    """Interpolates dataset 'ds' along the survey track given by the sruvey coordinates.
+    """Computes great-circle distance
 
 
     Args:
-        ds (xarray.core.dataset.Dataset): MITgcm LLC4320 data for all days
-        survey_track (xarray.core.dataset.Dataset): lat,lon,dep,time of the survey used for the interpolation
-        survey_indices (xarray.core.dataset.Dataset): i,j,k coordinates used for the interpolation
-        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the                                      case where user specfies only some of the details the default values will be used for rest.
         
 
     Returns:
-        subsampled_data: all field interpolated onto the track
-        sh_true: 'true' steric height along the track
         
     Raises: 
-        Sampling strategy is invalid: If a sampling strategy is not specified or different from the available strategies - sim_utcd, glider, sim_mooring, wave_glider, saildrone
     
 
     """
