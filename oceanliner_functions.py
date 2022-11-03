@@ -146,7 +146,7 @@ def download_llc4320_data(RegionName, datadir, start_date, ndays):
 
 
 
-def compute_derived_fields(RegionName, datadir, start_date, ndays):
+def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIABLES):
     """ Check for derived files in {datadir}/derived and compute if the files don't exist
 
 
@@ -155,6 +155,7 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays):
         datadir (str): Directory where input model files are stored
         start_date (datetime): Starting date for computing derived fields
         ndays (int): Number of days from the start date to compute derived fields
+        DERIVED_VARIABLES (str list): specifies which variables to derive (steric_height and/or vorticity)
 
     Returns:
         None
@@ -192,149 +193,159 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays):
         fnout = fnout.replace(RegionName + '/' , RegionName + '/derived/')
         # check if output file already exists
         if (not(os.path.isfile(fnout))):   
-            print('computing derived fields for', thisf) 
+            print(f'computing {DERIVED_VARIABLES} for {thisf}') 
             # load file:
             ds = xr.open_dataset(thisf)
             
-            # -------
-            # first time through the loop, load reference profile:
-            # load a single file to get coordinates
-            if cnt==0:
-                # mean lat/lon of domain
-                xav = ds.XC.isel(j=0).mean(dim='i')
-                yav = ds.YC.isel(i=0).mean(dim='j')
+            if 'steric_height' in DERIVED_VARIABLES:
+                # -------
+                # first time through the loop, load reference profile:
+                # load a single file to get coordinates
+                if cnt==0:
+                    # mean lat/lon of domain
+                    xav = ds.XC.isel(j=0).mean(dim='i')
+                    yav = ds.YC.isel(i=0).mean(dim='j')
 
-                # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
+                    # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
+                    # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
+                    grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
+                                 'Y':{'center': 'j', 'left': 'j_g'},
+                                 'T':{'center': 'time'},
+                                 'Z':{'center': 'k'}})
+
+
+                    # --- load reference file of argo data
+                    # here we use the 3x3 annual mean Argo product on standard produced by IRPC & distributed by ERDDAP
+                    # https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_defb_b79c_cb17.html
+                    # - download the profile closest to xav,yav once (quick), use it, then delete it.
+
+                    # URL gets temp & salt at all levels
+                    argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})]'
+
+                    # delete the argo file if it exists 
+                    if os.path.isfile('argo_local.nc'):
+                        os.remove('argo_local.nc')
+                    # use requests to get the file, and write locally:
+                    r = requests.get(argofile)
+                    file = open('argo_local.nc','wb')
+                    file.write(r.content)
+                    file.close()
+                    # open the argo file:
+                    argods = xr.open_dataset('argo_local.nc',decode_times=False)
+                    # get rid of time coord/dim/variable, which screws up the time in ds if it's loaded
+                    argods = argods.squeeze().reset_coords(names = {'time'}, drop=True) 
+                    # reference profiles: annual average Argo T/S using nearest neighbor
+                    Tref = argods["temp"]
+                    Sref = argods["salt"]
+                    # SA and CT from gsw:
+                    # see example from https://discourse.pangeo.io/t/wrapped-for-dask-teos-10-gibbs-seawater-gsw-oceanographic-toolbox/466
+                    Pref = xr.apply_ufunc(sw.p_from_z, -argods.LEV, yav)
+                    Pref.compute()
+                    SAref = xr.apply_ufunc(sw.SA_from_SP, Sref, Pref, xav, yav,
+                                           dask='parallelized', output_dtypes=[Sref.dtype])
+                    SAref.compute()
+                    CTref = xr.apply_ufunc(sw.CT_from_pt, Sref, Tref, # Theta is potential temperature
+                                           dask='parallelized', output_dtypes=[Sref.dtype])
+                    CTref.compute()
+                    Dref = xr.apply_ufunc(sw.density.rho, SAref, CTref, Pref,
+                                        dask='parallelized', output_dtypes=[Sref.dtype])
+                    Dref.compute()
+
+
+                    cnt = cnt+1
+                    print()
+
+                # -------
+                # --- COMPUTE STERIC HEIGHT IN STEPS ---
+                # 0. create datasets for variables of interest:
+                ss = ds.Salt
+                tt = ds.Theta
+                pp = xr.DataArray(sw.p_from_z(ds.Z,ds.YC))
+
+                # 1. compute absolute salinity and conservative temperature
+                sa = xr.apply_ufunc(sw.SA_from_SP, ss, pp, xav, yav, dask='parallelized', output_dtypes=[ss.dtype])
+                sa.compute()
+                ct = xr.apply_ufunc(sw.CT_from_pt, sa, tt, dask='parallelized', output_dtypes=[ss.dtype])
+                ct.compute()
+                dd = xr.apply_ufunc(sw.density.rho, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
+                dd.compute()
+                # 2. compute specific volume anomaly: gsw.density.specvol_anom_standard(SA, CT, p)
+                sva = xr.apply_ufunc(sw.density.specvol_anom_standard, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
+                sva.compute()
+                # 3. compute steric height = integral(0:z1) of Dref(z)*sva(z)*dz(z)
+                # - first, interpolate Dref to the model pressure levels
+                Drefi = Dref.interp(LEV=-ds.Z)
+                dz = -ds.Z_bnds.diff(dim='nb').drop_vars('nb').squeeze() # distance between interfaces
+
+                # steric height computation (summation/integral)
+                # - increase the size of Drefi and dz to match the size of sva
+                Db = Drefi.broadcast_like(sva)
+                dzb = dz.broadcast_like(sva)
+                dum = Db * sva * dzb
+                sh = dum.cumsum(dim='k') 
+                # this gives sh as a 3-d variable, (where the depth dimension 
+                # represents the deepest level from which the specific volume anomaly was interpolated)
+                # - but in reality we just want the SH that was determined by integrating over
+                # the full survey depth, which gives a 2-d output:
+                sh_true = dum.sum(dim='k') 
+            
+                # make into dataset:
+                sh_ds = sh.to_dataset(name='steric_height')
+                sh_true_ds = sh_true.to_dataset(name='steric_height_true')            
+                # add/rename the Argo reference profile variables to dout:
+                tref = Tref.to_dataset(name='Tref')
+                tref = tref.merge(Sref).rename({'salt': 'Sref'}).\
+                    rename({'LEV':'zref','latitude':'yav','longitude':'xav'})
+            
+            if 'vorticity' in DERIVED_VARIABLES:                
+                # --- COMPUTE VORTICITY using xgcm and interpolate to X, Y
                 # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
-                grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
-                             'Y':{'center': 'j', 'left': 'j_g'},
-                             'T':{'center': 'time'},
-                             'Z':{'center': 'k'}})
-                
-
-                # --- load reference file of argo data
-                # here we use the 3x3 annual mean Argo product on standard produced by IRPC & distributed by ERDDAP
-                # https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_defb_b79c_cb17.html
-                # - download the profile closest to xav,yav once (quick), use it, then delete it.
-                
-                # URL gets temp & salt at all levels
-                argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})]'
-                
-                # delete the argo file if it exists 
-                if os.path.isfile('argo_local.nc'):
-                    os.remove('argo_local.nc')
-                # use requests to get the file, and write locally:
-                r = requests.get(argofile)
-                file = open('argo_local.nc','wb')
-                file.write(r.content)
-                file.close()
-                # open the argo file:
-                argods = xr.open_dataset('argo_local.nc',decode_times=False)
-                # get rid of time coord/dim/variable, which screws up the time in ds if it's loaded
-                argods = argods.squeeze().reset_coords(names = {'time'}, drop=True) 
-                # reference profiles: annual average Argo T/S using nearest neighbor
-                Tref = argods["temp"]
-                Sref = argods["salt"]
-                # SA and CT from gsw:
-                # see example from https://discourse.pangeo.io/t/wrapped-for-dask-teos-10-gibbs-seawater-gsw-oceanographic-toolbox/466
-                Pref = xr.apply_ufunc(sw.p_from_z, -argods.LEV, yav)
-                Pref.compute()
-                SAref = xr.apply_ufunc(sw.SA_from_SP, Sref, Pref, xav, yav,
-                                       dask='parallelized', output_dtypes=[Sref.dtype])
-                SAref.compute()
-                CTref = xr.apply_ufunc(sw.CT_from_pt, Sref, Tref, # Theta is potential temperature
-                                       dask='parallelized', output_dtypes=[Sref.dtype])
-                CTref.compute()
-                Dref = xr.apply_ufunc(sw.density.rho, SAref, CTref, Pref,
-                                    dask='parallelized', output_dtypes=[Sref.dtype])
-                Dref.compute()
-                
-                
-                cnt = cnt+1
-                print()
-                
-            # -------
-            
-            # --- COMPUTE STERIC HEIGHT IN STEPS ---
-            # 0. create datasets for variables of interest:
-            ss = ds.Salt
-            tt = ds.Theta
-            pp = xr.DataArray(sw.p_from_z(ds.Z,ds.YC))
-            
-            # 1. compute absolute salinity and conservative temperature
-            sa = xr.apply_ufunc(sw.SA_from_SP, ss, pp, xav, yav, dask='parallelized', output_dtypes=[ss.dtype])
-            sa.compute()
-            ct = xr.apply_ufunc(sw.CT_from_pt, sa, tt, dask='parallelized', output_dtypes=[ss.dtype])
-            ct.compute()
-            dd = xr.apply_ufunc(sw.density.rho, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
-            dd.compute()
-            # 2. compute specific volume anomaly: gsw.density.specvol_anom_standard(SA, CT, p)
-            sva = xr.apply_ufunc(sw.density.specvol_anom_standard, sa, ct, pp, dask='parallelized', output_dtypes=[ss.dtype])
-            sva.compute()
-            # 3. compute steric height = integral(0:z1) of Dref(z)*sva(z)*dz(z)
-            # - first, interpolate Dref to the model pressure levels
-            Drefi = Dref.interp(LEV=-ds.Z)
-            dz = -ds.Z_bnds.diff(dim='nb').drop_vars('nb').squeeze() # distance between interfaces
-
-            # steric height computation (summation/integral)
-            # - increase the size of Drefi and dz to match the size of sva
-            Db = Drefi.broadcast_like(sva)
-            dzb = dz.broadcast_like(sva)
-            dum = Db * sva * dzb
-            sh = dum.cumsum(dim='k') 
-            # this gives sh as a 3-d variable, (where the depth dimension 
-            # represents the deepest level from which the specific volume anomaly was interpolated)
-            # - but in reality we just want the SH that was determined by integrating over
-            # the full survey depth, which gives a 2-d output:
-            sh_true = dum.sum(dim='k') 
-            
-            # --- COMPUTE VORTICITY using xgcm and interpolate to X, Y
-            # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
-            vorticity = (grid.diff(ds.V*ds.DXG, 'X') - grid.diff(ds.U*ds.DYG, 'Y'))/ds.RAZ
-            vorticity = grid.interp(grid.interp(vorticity, 'X', boundary='extend'), 'Y', boundary='extend')
-            
+                vorticity = (grid.diff(ds.V*ds.DXG, 'X') - grid.diff(ds.U*ds.DYG, 'Y'))/ds.RAZ
+                vorticity = grid.interp(grid.interp(vorticity, 'X', boundary='extend'), 'Y', boundary='extend')
+                # make into dataset
+                v_ds =vorticity.to_dataset(name='vorticity')
      
-            # --- save derived fields in a new file
-            # - convert sh and zeta to datasets
-            # NOTE can do this more efficiently in a single line w/out converting to dataset???
-            dout = vorticity.to_dataset(name='vorticity')
-            sh_ds = sh.to_dataset(name='steric_height')
-            dout = dout.merge(sh_ds)
-            sh_true_ds = sh_true.to_dataset(name='steric_height_true')
-            dout = dout.merge(sh_true_ds)
-             
-            # add/rename the Argo reference profile variables to dout:
-            tref = Tref.to_dataset(name='Tref')
-            tref = tref.merge(Sref).rename({'salt': 'Sref'}).\
-                rename({'LEV':'zref','latitude':'yav','longitude':'xav'})
-            # - add ref profiles to dout and drop uneeded vars/coords
-            dout = dout.merge(tref).drop_vars({'longitude','latitude','LEV'})
-  
     
-            # - add attributes for all variables
-            dout.steric_height.attrs = {'long_name' : 'Steric height',
-                                    'units' : 'm',
-                                    'comments_1' : 'Computed by integrating the specific volume anomaly (SVA) multiplied by a reference density, where the reference density profile is calculated from temperature & salinity profiles from the APDRC 3x3deg gridded Argo climatology product (accessed through ERDDAP). The profile nearest to the center of the domain is selected, and T & S profiles are averaged over one year before computing ref density. SVA is computed from the model T & S profiles. the Gibbs Seawater Toolbox is used compute reference density and SVA. steric_height is given at all depth levels (dep): steric_height at a given depth represents steric height signal generated by the water column above that depth - so the deepest steric_height value represents total steric height (and is saved in steric_height_true'
-                                       }
-            dout.steric_height_true.attrs = dout.steric_height.attrs
+    
             
-            dout.vorticity.attrs = {'long_name' : 'Vertical component of the vorticity',
+            # --- save derived fields in a new file
+            if 'steric_height' in DERIVED_VARIABLES:
+                dout = sh_ds
+                dout = dout.merge(sh_true_ds)
+                # - add ref profiles to dout and drop uneeded vars/coords
+                dout = dout.merge(tref).drop_vars({'longitude','latitude','LEV'})
+                # - add attributes for all variables
+                dout.steric_height.attrs = {'long_name' : 'Steric height',
+                                        'units' : 'm',
+                                        'comments_1' : 'Computed by integrating the specific volume anomaly (SVA) multiplied by a reference density, where the reference density profile is calculated from temperature & salinity profiles from the APDRC 3x3deg gridded Argo climatology product (accessed through ERDDAP). The profile nearest to the center of the domain is selected, and T & S profiles are averaged over one year before computing ref density. SVA is computed from the model T & S profiles. the Gibbs Seawater Toolbox is used compute reference density and SVA. steric_height is given at all depth levels (dep): steric_height at a given depth represents steric height signal generated by the water column above that depth - so the deepest steric_height value represents total steric height (and is saved in steric_height_true'
+                                           }
+                dout.steric_height_true.attrs = dout.steric_height.attrs
+                dout.Tref.attrs = {'long_name' : f'Reference temperature profile at {yav.data}N,{xav.data}E',
+                                    'units' : 'degree_C',
+                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
+                dout.Sref.attrs = {'long_name' : f'Reference salinity profile at {yav.data}N,{xav.data}E',
+                                        'units' : 'psu',
+                                        'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
+
+                dout.zref.attrs = {'long_name' : f'Reference depth for Tref and Sref',
+                                        'units' : 'm',
+                                        'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
+                
+                # merge vorticity 
+                if 'vorticity' in DERIVED_VARIABLES:  
+                    dout = dout.merge(v_ds)
+                    
+            # if we only computed vorticity, dout = v_ds
+            elif 'vorticity' in DERIVED_VARIABLES:  
+                dout = v_ds
+                
+                
+            # if vorticity, add the attrs:
+            if 'vorticity' in DERIVED_VARIABLES:  
+                dout.vorticity.attrs = {'long_name' : 'Vertical component of the vorticity',
                                     'units' : 's-1',
                                     'comments_1' : 'computed on DXG,DYG then interpolated to X,Y'}         
                
-            
-            dout.Tref.attrs = {'long_name' : f'Reference temperature profile at {yav.data}N,{xav.data}E',
-                                    'units' : 'degree_C',
-                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
-            dout.Sref.attrs = {'long_name' : f'Reference salinity profile at {yav.data}N,{xav.data}E',
-                                    'units' : 'psu',
-                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
-            
-            dout.zref.attrs = {'long_name' : f'Reference depth for Tref and Sref',
-                                    'units' : 'm',
-                                    'comments_1' : 'From Argo 3x3 climatology produced by APDRC'}
-            
-            
             # - save netcdf file with derived fields
             netcdf_fill_value = nc4.default_fillvals['f4']
             dv_encoding = {}
@@ -352,9 +363,9 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays):
 
             
             
-            # release & delete Argo file
-            argods.close()
-#             os.remove('argo_local.nc')
+    # release Argo file at the end of all files
+    if 'argods' in locals():
+        argods.close()
 
 
     
