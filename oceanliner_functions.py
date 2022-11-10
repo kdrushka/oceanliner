@@ -726,14 +726,18 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
             coords = dict(depth=(["depth"],zgridded),
                       time=(["time"],times))
         )
-        # variable names (if DERIVED_VARIABLES is not set, don't load the vector quantities)
+        # variable names
+        # - base list of vbls:
+        vbls3d = ['Theta','Salt', 'U', 'V']
+        vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
+        # if derived fields, add those to the list:
         if sampling_details['DERIVED_VARIABLES']:
-            vbls3d = ['Theta','Salt','vorticity','steric_height', 'U', 'V']
-            vbls2d = ['steric_height_true', 'Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
-        else:
-            vbls3d = ['Theta','Salt', 'U', 'V']
-            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
-        
+            if ('steric_height' in sampling_details['DERIVED_VARIABLES']):
+                vbls3d.append('steric_height')
+                vbls2d.append('steric_height_true')
+            if ('vorticity' in sampling_details['DERIVED_VARIABLES']):
+                vbls3d.append('vorticity')
+           
         
         # loop through 3d variables & interpolate:
         for vbl in vbls3d:
@@ -770,14 +774,19 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
             )
         )
 
-        # variable names (if DERIVED_VARIABLES is not set, don't load the vector quantities)
+        # variable names 
+        # - base list of vbls:
+        vbls3d = ['Theta','Salt', 'U', 'V']
+        vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
+        # if derived fields, add those to the list:
         if sampling_details['DERIVED_VARIABLES']:
-            vbls3d = ['Theta','Salt','vorticity','steric_height', 'U', 'V']
-            vbls2d = ['steric_height_true', 'Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']
-        else:
-            vbls3d = ['Theta','Salt']
-            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceSflux']        
-        
+            if ('steric_height' in sampling_details['DERIVED_VARIABLES']):
+                vbls3d.append('steric_height')
+                vbls2d.append('steric_height_true')
+            if ('vorticity' in sampling_details['DERIVED_VARIABLES']):
+                vbls3d.append('vorticity')
+                
+                
         print('Interpolating model fields to the sampling track...')
         # loop & interpolate through 3d variables:
         for vbl in vbls3d:
