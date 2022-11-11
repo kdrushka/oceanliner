@@ -891,13 +891,11 @@ def survey_interp(ds, survey_track, survey_indices, sampling_details):
   
 
         #  -- 2-d fields: loop & reshape 2-d data to the same time grid 
+        # add lon & lat to the 2d variables:
+        vbls2d.append('lon')
+        vbls2d.append('lat')
         for vbl in vbls2d:
-            
-            if sampling_details['SAVE_PRELIMINARY']:
-                # not a dask array, so no "compute" command needed
-                this_var = subsampled_data[vbl].data.copy() 
-            else:
-                this_var = subsampled_data[vbl].data.compute().copy() 
+            this_var = subsampled_data[vbl].data.copy() 
             # subsample to nt
             this_var_sub = this_var[0:-1:nz]
             sgridded[vbl] = (("time"), this_var_sub)
