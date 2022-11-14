@@ -4,7 +4,7 @@ This notebook is being developed as part of a NASA-funded [SWOT Science Team](ht
 
 This package takes an input trajectory (e.g., the path of an ocean glider), subsamples output from a high-resolution ocean simulation along that trajectory, and returns a set of subsampled variables (e.g., standard physical variables temperature, salinity, velocity; derived physical quantities such as steric height; biogeochemical quantities if available).  We envision this package having two potential uses: 1) designing *in situ* sampling strategies, and 2) interpreting *in situ* data in the context of a high resolution model.
 
-See ** run_oceanliner.ipynb **
+See **run_oceanliner.ipynb**
 
 
 Led by Kyla Drushka (kdrushka@apl.uw.edu) with contributions from Manjaree Binjolkar. Code was developed in part during [OceanHackWeek21](https://oceanhackweek.github.io/hackweek.html) with team Dhruv Balwada, Cassia Cai, Diana LaScala-Gruenewald and Iury Simoes-Sousa.
