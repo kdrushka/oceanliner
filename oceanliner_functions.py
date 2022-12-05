@@ -146,6 +146,9 @@ def download_llc4320_data(RegionName, datadir, start_date, ndays):
                 filename_dir = os.path.join(datadir, target_file)
                 request.urlretrieve(https_access, filename_dir)
             except:
+                print(f'wget -N -P {datadir} {https_access}')
+                os.system(f'wget -N -P {datadir} {https_access}')
+            finally:
                 print(' ---- error - skipping this file')
 
 
