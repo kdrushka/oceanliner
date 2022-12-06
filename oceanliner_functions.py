@@ -211,6 +211,9 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     # mean lat/lon of domain
                     xav = ds.XC.isel(j=0).mean(dim='i')
                     yav = ds.YC.isel(i=0).mean(dim='j')
+                    
+                    print(xav)
+                    print(xav.data)
 
                     # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
                     # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
@@ -237,7 +240,7 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     file.write(r.content)
                     file.close()
                     # open the argo file:
-                    argods = xr.open_dataset('argo_local.nc',decode_times=False)
+                    argods = xr.open_dataset('argo_local.nc', engine='netcdf4', decode_times=False)
                     # get rid of time coord/dim/variable, which screws up the time in ds if it's loaded
                     argods = argods.squeeze().reset_coords(names = {'time'}, drop=True) 
                     # reference profiles: annual average Argo T/S using nearest neighbor
