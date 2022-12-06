@@ -211,6 +211,7 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     # mean lat/lon of domain
                     xav = ds.XC.isel(j=0).mean(dim='i')
                     yav = ds.YC.isel(i=0).mean(dim='j')
+                    
                    
                     # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
                     # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
@@ -225,8 +226,14 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     # https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_defb_b79c_cb17.html
                     # - download the profile closest to xav,yav once (quick), use it, then delete it.
 
-                    # URL gets temp & salt at all levels
-                    argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})]'
+                    # URL gets temp & salt at all levels (argo lons are from 0-360, llc4320 are from -180:180)
+                    xav_argo = xav.data
+                    yav_argo = yav.data
+                    if xav_argo<0:
+                        xav_argo = xav_argo + 360
+                    
+                    argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav_argo}):1:({yav_argo})][({xav_argo}):1:({xav_argo})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav_argo}):1:({yav_argo})][({xav_argo}):1:({xav_argo})]'
+                    
 
                     # delete the argo file if it exists 
                     if os.path.isfile('argo_local.nc'):
