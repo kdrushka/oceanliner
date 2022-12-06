@@ -211,10 +211,7 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     # mean lat/lon of domain
                     xav = ds.XC.isel(j=0).mean(dim='i')
                     yav = ds.YC.isel(i=0).mean(dim='j')
-                    
-                    print(xav)
-                    print(xav.data)
-
+                   
                     # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
                     # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
                     grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
