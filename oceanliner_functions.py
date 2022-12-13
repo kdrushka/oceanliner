@@ -1235,4 +1235,31 @@ def vis_2D_M( RegionName, datadir, start_date, ndays, sampling_details):
         ndays = 30
         vis_2D( RegionName, datadir, start_date, ndays, sampling_details)
         print (dt)
+        
+        
+def vis_survey_M( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for each month between the start and end dates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+        
+    Raises: 
+        FileNotFoundError: If the Earthdata account details entered are incorrect or the path to directory is incorrect.
+    
+    Note*:
+        Please give start date from the starting of the month.
+    """""
+    #find the end date
+    end_date= start_date + timedelta(ndays)
+    ending =end_date-timedelta(days=0)
+    for dt in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=ending):
+        start_date= dt
+        ndays=30
+        vis_survey(RegionName, datadir, start_date, ndays, sampling_details)
+        print (dt)
 
