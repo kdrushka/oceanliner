@@ -1037,6 +1037,56 @@ def vis_survey(RegionName, datadir, start_date, ndays, sampling_details):
          plt.savefig(figdir + '/' + filename_base + '_sampling.png', dpi=400, transparent=False, facecolor='white')
     
     plt.show()
+ 
+def vis_3D( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for the interpolated dataset 'ds' along the survey track given by the survey coordinates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
     
+        
+    """
+    # Load the files
+    ds = load_files(RegionName, datadir, start_date, ndays)
+    
+    # Calls get_survey_track function to get the tracks and indices
+    survey_track, survey_indices, sampling_parameters = get_survey_track(ds, sampling_details)
+    
+    # Calls survey_interp function to get the gridded data
+    subsampled_data, sgridded = survey_interp(ds, survey_track, survey_indices, sampling_parameters)
+
+    #%%time
+    # 3d fields
+    vbls3d = ['Theta','Salt','U','V',
+              #'vorticity'
+             ]
+    vbls3d = ['Theta','Salt']
+    ylim = [min(sgridded['depth'].values), max(sgridded['depth'].values)]
+    ylim = [-200, -1]
+
+    nr = len(vbls3d) # # of rows
+    fig,ax=plt.subplots(nr,figsize=(8,len(vbls3d)*2),constrained_layout=True)
+
+
+    for j in range(nr):
+        sgridded[vbls3d[j]].plot(ax=ax[j], ylim=ylim)
+        ax[j].plot(sgridded.time.data, -sgridded.KPPhbl.data, c='k')
+        ax[j].set_title(vbls3d[j])
+    
+     # ---- generate name of file to save outputs in ---- 
+    filename_base = (f'OSSE_{RegionName}_{sampling_details["SAMPLING_STRATEGY"]}_{start_date}_to_{start_date + timedelta(ndays)}_maxdepth{int(sampling_parameters["zrange"][1])}')
+    filename_out_base = (f'{outputdir}/{filename_base}')
+
+    # save
+    if SAVE_FIGURES:
+        #plt.savefig(figdir + filename_base + '_3D.png', dpi=400, transparent=False, facecolor='white')
+        plt.savefig(figdir + '/' + filename_base + start_date + '_3D.png', dpi=400, transparent=False, facecolor='white') 
+    plt.show()
+ 
 
 
