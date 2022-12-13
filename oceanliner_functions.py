@@ -1213,4 +1213,26 @@ def vis_2D( RegionName, datadir, start_date, ndays, sampling_details):
     plt.show()
  
 
+def vis_2D_M( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a 2D visualisation for the interpolated dataset 'ds' along the survey track given by the survey coordinates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+    
+    """
+    #find the end date
+    end_date= start_date + timedelta(ndays)
+    ending =end_date-timedelta(days=0)
+    #start_date = date(2012,1,1)
+    
+    for dt in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=ending):
+        start_date = dt
+        ndays = 30
+        vis_2D( RegionName, datadir, start_date, ndays, sampling_details)
+        print (dt)
 
