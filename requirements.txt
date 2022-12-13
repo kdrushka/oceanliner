@@ -17,7 +17,6 @@ colorcet==3.0.0
 datashader==0.14.1
 datashape==0.5.2
 dill==0.3.5.1
-distributed==2022.7.1
 docutils==0.17.1
 dpcpp-cpp-rt==2022.1.0
 fonttools==4.34.4
