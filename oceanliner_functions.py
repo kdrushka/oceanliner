@@ -937,5 +937,106 @@ def great_circle(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
     return 6371 * (acos(sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon1 - lon2)))
 
+def vis_survey(RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for the whole dataset.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+        
+    Raises: 
+        FileNotFoundError: If the Earthdata account details entered are incorrect or the path to directory is incorrect.
+    
+    """
+
+    # directory to save derived data to - create if doesn't exist
+    derivedir = datadir + 'derived/'
+    if not(os.path.isdir(derivedir)):
+        os.mkdir(derivedir)
+        
+    # files to load:
+    date_list = [start_date + timedelta(days=x) for x in range(ndays)]
+    target_files = [f'{datadir}/LLC4320_pre-SWOT_{RegionName}_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+    
+    # list of derived files:
+    derived_files = [f'{derivedir}/LLC4320_pre-SWOT_{RegionName}_derived-fields_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+
+    # drop the vector variables if loading derived variables because we are going to load the rotated ones in the next cell
+    if sampling_details['DERIVED_VARIABLES']:
+        drop_variables={'U', 'V', 'oceTAUX', 'oceTAUY'}
+    else:
+        drop_variables={}
+
+    ds = xr.open_mfdataset(target_files)
+
+    # XC, YC and Z are the same at all times, so select a single time
+    # (note, this breaks for a single file - always load >1 file)
+    X = ds.XC.isel(time=0) 
+    Y = ds.YC.isel(time=0)
+    
+    # load the corresponding derived fields (includes steric height, vorticity, and transformed vector variables for current and wind stress)
+    if sampling_details['DERIVED_VARIABLES']:
+        merged_ds(RegionName, datadir, start_date, ndays, sampling_details)
+        
+     #the following was written as a new function, cross-check paths!!!!!!!!   
+    #derivedir = datadir + 'derived/'
+    #derived_files = [f'{derivedir}LLC4320_pre-SWOT_{RegionName}_derived-fields_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+    #dsd = xr.open_mfdataset(derived_files, parallel=True, chunks={'i':xchunk, 'j':ychunk, 'time':tchunk})
+    
+    # merge the derived and raw data
+    #ds = ds.merge(dsd)
+    # rename the transformed vector variables to their original names
+    #ds = ds.rename_vars({'U_transformed':'U', 'V_transformed':'V', 
+     #                    'oceTAUX_transformed':'oceTAUX', 'oceTAUY_transformed':'oceTAUY'})
+
+
+    # drop a bunch of other vars we don't actually use - can comment this out if these are wanted
+    ds = ds.drop_vars({'DXV','DYU', 'DXC','DXG', 'DYC','DYG', 'XC_bnds', 'YC_bnds', 'Zp1', 'Zu','Zl','Z_bnds', 'nb'})
+    #ds
+    
+    #%matplotlib inline
+    plt.figure(figsize=(15,5))
+
+    # map of Theta at time zero
+    ax = plt.subplot(1,2,1)
+    ssto = plt.pcolormesh(X,Y,ds.Theta.isel(k=0, time=0).values, shading='auto')
+    if not (sampling_details['SAMPLING_STRATEGY'] == 'mooring' or sampling_details['SAMPLING_STRATEGY'] == 'sim_mooring'):
+            tracko = plt.scatter(survey_track.lon, survey_track.lat, c=(survey_track.time-survey_track.time[0])/1e9/86400, cmap='Reds', s=0.75)
+            plt.colorbar(ssto).set_label('SST, $^o$C')
+            plt.colorbar(tracko).set_label('days from start')
+            plt.title('SST and survey track: ' + RegionName + ', '+ sampling_details['SAMPLING_STRATEGY'])
+    else:
+            plt.plot(survey_track.lon, survey_track.lat, marker='*', c='r')
+            plt.title('SST and mooring location: ' + RegionName + ' region, ' + sampling_details['SAMPLING_STRATEGY'] )
+
+    # depth/time plot of first few datapoints
+    ax = plt.subplot(1,2,2)
+    iplot = slice(0,20000)
+    if not (sampling_details['SAMPLING_STRATEGY'] == 'mooring' or sampling_details['SAMPLING_STRATEGY'] == 'sim_mooring'):
+            plt.plot(survey_track.time.isel(points=iplot), survey_track.dep.isel(points=iplot), marker='.')
+    else:
+            plt.scatter((np.tile(survey_track['time'].isel(time=iplot), int(survey_track['dep'].data.size))),
+                np.tile(survey_track['dep'], int(survey_track['time'].isel(time=iplot).data.size)),marker='.')             
+    #plt.xlim([start_date + datetime.timedelta(days=0), start_date + datetime.timedelta(days=2)])
+    plt.ylabel('Depth, m')
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=1))
+    plt.gcf().autofmt_xdate()
+    plt.title(f"Sampling pattern, hspeed ={sampling_parameters['hspeed']}, vspeed ={sampling_parameters['vspeed']}")
+
+    # ---- generate name of file to save outputs in ---- 
+    filename_base = (f'OSSE_{RegionName}_{sampling_details["SAMPLING_STRATEGY"]}_{start_date}_to_{start_date + timedelta(ndays)}_maxdepth{int(sampling_parameters["zrange"][1])}')
+    filename_out_base = (f'{outputdir}/{filename_base}')
+
+    # save
+    if SAVE_FIGURES:
+    #    plt.savefig('/data2/Dropbox/projects/adac/figures/' + filename_base + '_sampling.png', dpi=400, transparent=False, facecolor='white')
+         plt.savefig(figdir + '/' + filename_base + '_sampling.png', dpi=400, transparent=False, facecolor='white')
+    
+    plt.show()
+    
 
 
