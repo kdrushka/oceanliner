@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>oceanliner_functions module &mdash; Oceanliner 0.0.1 documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="_static/doctools.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html" class="icon icon-home"> Oceanliner
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation_guide.html">Installation Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="license.html">LICENSE</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Oceanliner</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>oceanliner_functions module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/oceanliner_functions.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-oceanliner_functions">
+<span id="oceanliner-functions-module"></span><h1>oceanliner_functions module<a class="headerlink" href="#module-oceanliner_functions" title="Permalink to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.compute_derived_fields">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">compute_derived_fields</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">RegionName</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datadir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndays</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DERIVED_VARIABLES</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.compute_derived_fields" title="Permalink to this definition"></a></dt>
+<dd><p>Check for derived files in {datadir}/derived and compute if the files don’t exist</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>RegionName</strong> (<em>str</em>) – It can be selected from the list of regions with pre-SWOT llc4320 data</p></li>
+<li><p><strong>datadir</strong> (<em>str</em>) – Directory where input model files are stored</p></li>
+<li><p><strong>start_date</strong> (<em>datetime</em>) – Starting date for computing derived fields</p></li>
+<li><p><strong>ndays</strong> (<em>int</em>) – Number of days from the start date to compute derived fields</p></li>
+<li><p><strong>DERIVED_VARIABLES</strong> (<em>str list</em>) – specifies which variables to derive (steric_height and/or vorticity)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+<dt class="field-odd">Raises</dt>
+<dd class="field-odd"><p><strong>TBD</strong> – TBD</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.download_llc4320_data">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">download_llc4320_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">RegionName</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datadir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndays</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.download_llc4320_data" title="Permalink to this definition"></a></dt>
+<dd><p>Download the MITgcm LLC4320 data from PODAAC Earthdata website.</p>
+<p>Creates a http access for each target file using the setup_earthdata_login_auth function. Checks for existing llc4320 files in ‘datadir’ and downloads them in the datadir if not found.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>RegionName</strong> (<em>str</em>) – Can be selected from the list of regions with pre-SWOT llc4320 data</p></li>
+<li><p><strong>datadir</strong> (<em>str</em>) – Directory where input model files are stored</p></li>
+<li><p><strong>start_date</strong> (<em>datetime</em>) – Starting date for downloading data</p></li>
+<li><p><strong>ndays</strong> (<em>int</em>) – Number of days to be downloaded from the start date</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+<dt class="field-odd">Raises</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>FileNotFoundError</strong> – If the Earthdata account details entered are incorrect</p></li>
+<li><p><strong>error-skipping this file</strong> – If the file already exists</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.get_survey_track">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">get_survey_track</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampling_details_in</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.get_survey_track" title="Permalink to this definition"></a></dt>
+<dd><p>Calculates the survey indices and track based on the sampling details for the dataset for all days.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ds</strong> (<em>xarray.core.dataset.Dataset</em>) – MITgcm LLC4320 data for all days</p></li>
+<li><p><strong>sampling_details_in</strong> (<em>dict</em>) – It includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the                                      case where user specfies only some of the details the default values will be used for rest.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Returns the track (lat, lon, depth, time) of the sampling trajectory based on the type of sampling
+survey_indices (xarray.core.dataset.Dataset): Returns the indices (i, j, k, time) of the sampling trajectory based on the type of sampling
+sampling_details (dict): Returns the modified sampling_details by filling in the missing parameters with defaults.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>survey_track (xarray.core.dataset.Dataset)</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>Sampling strategy is invalid</strong> – If a sampling strategy is not specified or different from the available strategies - sim_utcd, glider, sim_mooring, wave_glider, saildrone</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.great_circle">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">great_circle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lon1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lat1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lon2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lat2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.great_circle" title="Permalink to this definition"></a></dt>
+<dd><p>Computes great-circle distance</p>
+<p>Args:</p>
+<p>Returns:</p>
+<p>Raises:</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.rotate_vector_to_EN">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">rotate_vector_to_EN</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">U</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">V</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">AngleCS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">AngleSN</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.rotate_vector_to_EN" title="Permalink to this definition"></a></dt>
+<dd><p>Rotate vector to east north direction.</p>
+<p>Assumes that AngleCS and AngleSN are already of same dimension as V and U (i.e. already interpolated to cell center)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>U</strong> (<em>xarray Dataarray</em>) – Zonal vector component</p></li>
+<li><p><strong>V</strong> (<em>array Dataarray</em>) – Meridonal vector component</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Rotated zonal component
+vN (xarray Dataarray): Rotated meridonial component</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>uE (xarray Dataarray)</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>FileNotFoundError</strong> – If the Earthdata account details entered are incorrect.</p>
+</dd>
+</dl>
+<p>Note: adapted from <a class="reference external" href="https://github.com/AaronDavidSchneider/cubedsphere/blob/main/cubedsphere/regrid.py">https://github.com/AaronDavidSchneider/cubedsphere/blob/main/cubedsphere/regrid.py</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.set_defaults">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">set_defaults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampling_details</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.set_defaults" title="Permalink to this definition"></a></dt>
+<dd><p>Calculates the survey indices and track based on the sampling details for the dataset for all days.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ds</strong> (<em>xarray.core.dataset.Dataset</em>) – MITgcm LLC4320 data for all days</p></li>
+<li><p><strong>sampling_details</strong> (<em>dict</em>) – It includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the                                      case where user specfies only some of the details the default values will be used for rest.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Returns the track (lat, lon, depth, time) of the sampling trajectory based on the type of sampling
+survey_indices (xarray.core.dataset.Dataset): Returns the indices (i, j, k, time) of the sampling trajectory based on the type of sampling
+sampling_details (dict): Returns the modified sampling_details by filling in the missing parameters with defaults.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>survey_track (xarray.core.dataset.Dataset)</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>Sampling strategy is invalid</strong> – If a sampling strategy is not specified or different from the available strategies - sim_utcd, sim_glider, sim_mooring, wave_glider, sail_drone</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.setup_earthdata_login_auth">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">setup_earthdata_login_auth</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">endpoint</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'urs.earthdata.nasa.gov'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.setup_earthdata_login_auth" title="Permalink to this definition"></a></dt>
+<dd><p>Set up the the Earthdata login authorization for downloading data.</p>
+<p>Extended description of function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>True if succesful, False otherwise.</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+<dt class="field-odd">Raises</dt>
+<dd class="field-odd"><p><strong>FileNotFoundError</strong> – If the Earthdata account details entered are incorrect.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="oceanliner_functions.survey_interp">
+<span class="sig-prename descclassname"><span class="pre">oceanliner_functions.</span></span><span class="sig-name descname"><span class="pre">survey_interp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">survey_track</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">survey_indices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampling_details</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oceanliner_functions.survey_interp" title="Permalink to this definition"></a></dt>
+<dd><p>Interpolates dataset ‘ds’ along the survey track given by the sruvey coordinates.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ds</strong> (<em>xarray.core.dataset.Dataset</em>) – MITgcm LLC4320 data for all days</p></li>
+<li><p><strong>survey_track</strong> (<em>xarray.core.dataset.Dataset</em>) – lat,lon,dep,time of the survey used for the interpolation</p></li>
+<li><p><strong>survey_indices</strong> (<em>xarray.core.dataset.Dataset</em>) – i,j,k coordinates used for the interpolation</p></li>
+<li><p><strong>sampling_details</strong> (<em>dict</em>) – Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the                                      case where user specfies only some of the details the default values will be used for rest.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>all field interpolated onto the track
+sh_true: ‘true’ steric height along the track</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>subsampled_data</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><strong>Sampling strategy is invalid</strong> – If a sampling strategy is not specified or different from the available strategies - sim_utcd, glider, sim_mooring, wave_glider, saildrone</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Kyla Drushka.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

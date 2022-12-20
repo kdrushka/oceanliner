@@ -301,7 +301,17 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                 tref = tref.merge(Sref).rename({'salt': 'Sref'}).\
                     rename({'LEV':'zref','latitude':'yav','longitude':'xav'})
             
-            if 'vorticity' in DERIVED_VARIABLES:                
+            if 'vorticity' in DERIVED_VARIABLES:
+                # mean lat/lon of domain
+                xav = ds.XC.isel(j=0).mean(dim='i')
+                yav = ds.YC.isel(i=0).mean(dim='j')
+
+                # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
+                # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
+                grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
+                                 'Y':{'center': 'j', 'left': 'j_g'},
+                                 'T':{'center': 'time'},
+                                 'Z':{'center': 'k'}})
                 # --- COMPUTE VORTICITY using xgcm and interpolate to X, Y
                 # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
                 vorticity = (grid.diff(ds.V*ds.DXG, 'X') - grid.diff(ds.U*ds.DYG, 'Y'))/ds.RAZ
