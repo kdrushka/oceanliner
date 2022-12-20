@@ -146,6 +146,8 @@ def download_llc4320_data(RegionName, datadir, start_date, ndays):
                 filename_dir = os.path.join(datadir, target_file)
                 request.urlretrieve(https_access, filename_dir)
             except:
+                os.system(f'wget -N -P {datadir} {https_access}')
+            finally:
                 print(' ---- error - skipping this file')
 
 
@@ -209,7 +211,8 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     # mean lat/lon of domain
                     xav = ds.XC.isel(j=0).mean(dim='i')
                     yav = ds.YC.isel(i=0).mean(dim='j')
-
+                    
+                   
                     # for transforming U and V, and for the vorticity calculation, build the xgcm grid:
                     # see https://xgcm.readthedocs.io/en/latest/xgcm-examples/02_mitgcm.html
                     grid = xgcm.Grid(ds, coords={'X':{'center': 'i', 'left': 'i_g'}, 
@@ -223,8 +226,14 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     # https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_defb_b79c_cb17.html
                     # - download the profile closest to xav,yav once (quick), use it, then delete it.
 
-                    # URL gets temp & salt at all levels
-                    argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav.data}):1:({yav.data})][({xav.data}):1:({xav.data})]'
+                    # URL gets temp & salt at all levels (argo lons are from 0-360, llc4320 are from -180:180)
+                    xav_argo = xav.data
+                    yav_argo = yav.data
+                    if xav_argo<0:
+                        xav_argo = xav_argo + 360
+                    
+                    argofile = f'https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_625d_3b64_cc4d.nc?temp[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav_argo}):1:({yav_argo})][({xav_argo}):1:({xav_argo})],salt[(0000-12-15T00:00:00Z):1:(0000-12-15T00:00:00Z)][(0.0):1:(2000.0)][({yav_argo}):1:({yav_argo})][({xav_argo}):1:({xav_argo})]'
+                    
 
                     # delete the argo file if it exists 
                     if os.path.isfile('argo_local.nc'):
@@ -235,7 +244,7 @@ def compute_derived_fields(RegionName, datadir, start_date, ndays, DERIVED_VARIA
                     file.write(r.content)
                     file.close()
                     # open the argo file:
-                    argods = xr.open_dataset('argo_local.nc',decode_times=False)
+                    argods = xr.open_dataset('argo_local.nc', engine='netcdf4', decode_times=False)
                     # get rid of time coord/dim/variable, which screws up the time in ds if it's loaded
                     argods = argods.squeeze().reset_coords(names = {'time'}, drop=True) 
                     # reference profiles: annual average Argo T/S using nearest neighbor
@@ -947,5 +956,351 @@ def great_circle(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
     return 6371 * (acos(sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon1 - lon2)))
 
+def vis_survey(RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for the whole dataset.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+        
+    Raises: 
+        FileNotFoundError: If the Earthdata account details entered are incorrect or the path to directory is incorrect.
+    
+    """
+
+    # directory to save derived data to - create if doesn't exist
+    derivedir = datadir + 'derived/'
+    if not(os.path.isdir(derivedir)):
+        os.mkdir(derivedir)
+        
+    # files to load:
+    date_list = [start_date + timedelta(days=x) for x in range(ndays)]
+    target_files = [f'{datadir}/LLC4320_pre-SWOT_{RegionName}_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+    
+    # list of derived files:
+    derived_files = [f'{derivedir}/LLC4320_pre-SWOT_{RegionName}_derived-fields_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+
+    # drop the vector variables if loading derived variables because we are going to load the rotated ones in the next cell
+    if sampling_details['DERIVED_VARIABLES']:
+        drop_variables={'U', 'V', 'oceTAUX', 'oceTAUY'}
+    else:
+        drop_variables={}
+
+    ds = xr.open_mfdataset(target_files)
+
+    # XC, YC and Z are the same at all times, so select a single time
+    # (note, this breaks for a single file - always load >1 file)
+    X = ds.XC.isel(time=0) 
+    Y = ds.YC.isel(time=0)
+    
+    # load the corresponding derived fields (includes steric height, vorticity, and transformed vector variables for current and wind stress)
+    if sampling_details['DERIVED_VARIABLES']:
+        merged_ds(RegionName, datadir, start_date, ndays, sampling_details)
+        
+     #the following was written as a new function, cross-check paths!!!!!!!!   
+    #derivedir = datadir + 'derived/'
+    #derived_files = [f'{derivedir}LLC4320_pre-SWOT_{RegionName}_derived-fields_{date_list[n].strftime("%Y%m%d")}.nc' for n in range(ndays)] # list target files
+    #dsd = xr.open_mfdataset(derived_files, parallel=True, chunks={'i':xchunk, 'j':ychunk, 'time':tchunk})
+    
+    # merge the derived and raw data
+    #ds = ds.merge(dsd)
+    # rename the transformed vector variables to their original names
+    #ds = ds.rename_vars({'U_transformed':'U', 'V_transformed':'V', 
+     #                    'oceTAUX_transformed':'oceTAUX', 'oceTAUY_transformed':'oceTAUY'})
 
 
+    # drop a bunch of other vars we don't actually use - can comment this out if these are wanted
+    ds = ds.drop_vars({'DXV','DYU', 'DXC','DXG', 'DYC','DYG', 'XC_bnds', 'YC_bnds', 'Zp1', 'Zu','Zl','Z_bnds', 'nb'})
+    #ds
+    
+    #%matplotlib inline
+    plt.figure(figsize=(15,5))
+
+    # map of Theta at time zero
+    ax = plt.subplot(1,2,1)
+    ssto = plt.pcolormesh(X,Y,ds.Theta.isel(k=0, time=0).values, shading='auto')
+    if not (sampling_details['SAMPLING_STRATEGY'] == 'mooring' or sampling_details['SAMPLING_STRATEGY'] == 'sim_mooring'):
+            tracko = plt.scatter(survey_track.lon, survey_track.lat, c=(survey_track.time-survey_track.time[0])/1e9/86400, cmap='Reds', s=0.75)
+            plt.colorbar(ssto).set_label('SST, $^o$C')
+            plt.colorbar(tracko).set_label('days from start')
+            plt.title('SST and survey track: ' + RegionName + ', '+ sampling_details['SAMPLING_STRATEGY'])
+    else:
+            plt.plot(survey_track.lon, survey_track.lat, marker='*', c='r')
+            plt.title('SST and mooring location: ' + RegionName + ' region, ' + sampling_details['SAMPLING_STRATEGY'] )
+
+    # depth/time plot of first few datapoints
+    ax = plt.subplot(1,2,2)
+    iplot = slice(0,20000)
+    if not (sampling_details['SAMPLING_STRATEGY'] == 'mooring' or sampling_details['SAMPLING_STRATEGY'] == 'sim_mooring'):
+            plt.plot(survey_track.time.isel(points=iplot), survey_track.dep.isel(points=iplot), marker='.')
+    else:
+            plt.scatter((np.tile(survey_track['time'].isel(time=iplot), int(survey_track['dep'].data.size))),
+                np.tile(survey_track['dep'], int(survey_track['time'].isel(time=iplot).data.size)),marker='.')             
+    #plt.xlim([start_date + datetime.timedelta(days=0), start_date + datetime.timedelta(days=2)])
+    plt.ylabel('Depth, m')
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=1))
+    plt.gcf().autofmt_xdate()
+    plt.title(f"Sampling pattern, hspeed ={sampling_parameters['hspeed']}, vspeed ={sampling_parameters['vspeed']}")
+
+    # ---- generate name of file to save outputs in ---- 
+    filename_base = (f'OSSE_{RegionName}_{sampling_details["SAMPLING_STRATEGY"]}_{start_date}_to_{start_date + timedelta(ndays)}_maxdepth{int(sampling_parameters["zrange"][1])}')
+    filename_out_base = (f'{outputdir}/{filename_base}')
+
+    # save
+    if SAVE_FIGURES:
+    #    plt.savefig('/data2/Dropbox/projects/adac/figures/' + filename_base + '_sampling.png', dpi=400, transparent=False, facecolor='white')
+         plt.savefig(figdir + '/' + filename_base + '_sampling.png', dpi=400, transparent=False, facecolor='white')
+    
+    plt.show()
+ 
+def vis_3D( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for the interpolated dataset 'ds' along the survey track given by the survey coordinates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+    
+        
+    """
+    # Load the files
+    ds = load_files(RegionName, datadir, start_date, ndays)
+    
+    # Calls get_survey_track function to get the tracks and indices
+    survey_track, survey_indices, sampling_parameters = get_survey_track(ds, sampling_details)
+    
+    # Calls survey_interp function to get the gridded data
+    subsampled_data, sgridded = survey_interp(ds, survey_track, survey_indices, sampling_parameters)
+
+    #%%time
+    # 3d fields
+    vbls3d = ['Theta','Salt','U','V',
+              #'vorticity'
+             ]
+    vbls3d = ['Theta','Salt']
+    ylim = [min(sgridded['depth'].values), max(sgridded['depth'].values)]
+    ylim = [-200, -1]
+
+    nr = len(vbls3d) # # of rows
+    fig,ax=plt.subplots(nr,figsize=(8,len(vbls3d)*2),constrained_layout=True)
+
+
+    for j in range(nr):
+        sgridded[vbls3d[j]].plot(ax=ax[j], ylim=ylim)
+        ax[j].plot(sgridded.time.data, -sgridded.KPPhbl.data, c='k')
+        ax[j].set_title(vbls3d[j])
+    
+     # ---- generate name of file to save outputs in ---- 
+    filename_base = (f'OSSE_{RegionName}_{sampling_details["SAMPLING_STRATEGY"]}_{start_date}_to_{start_date + timedelta(ndays)}_maxdepth{int(sampling_parameters["zrange"][1])}')
+    filename_out_base = (f'{outputdir}/{filename_base}')
+
+    # save
+    if SAVE_FIGURES:
+        #plt.savefig(figdir + filename_base + '_3D.png', dpi=400, transparent=False, facecolor='white')
+        plt.savefig(figdir + '/' + filename_base + start_date + '_3D.png', dpi=400, transparent=False, facecolor='white') 
+    plt.show()
+    
+def vis_2D( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a 2D visualisation for the interpolated dataset 'ds' along the survey track given by the survey coordinates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+    
+        
+    """
+    # Load the files
+    ds = load_files(RegionName, datadir, start_date, ndays)
+    
+    # Calls get_survey_track function to get the tracks and indices
+    survey_track, survey_indices, sampling_parameters = get_survey_track(ds, sampling_details)
+    
+    # Calls survey_interp function to get the gridded data
+    subsampled_data, sgridded = survey_interp(ds, survey_track, survey_indices, sampling_parameters)
+
+    
+    # 2d fields
+    if sampling_details['DERIVED_VARIABLES']:
+            vbls2d = ['steric_height_true', 'Eta', 'KPPhbl', 'PhiBot', 'oceTAUX', 'oceTAUY', 'oceQnet', 'oceQsw','oceFWflx']
+            #nr = len(vbls2d) # number of rows
+            nr=6
+            fig,ax=plt.subplots(nr,figsize=(8,len(vbls2d)*2),constrained_layout=True)
+            
+            j=0 #initialising first graph
+            # wind vectors
+            ax[j].quiver(sgridded.time.data,0,sgridded.oceTAUX.data, sgridded.oceTAUY.data)
+            ax[j].set_title('Wind stress')    
+            ax[j].set_ylabel('N m-2')
+            
+            # SH
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.steric_height-sgridded.steric_height.mean(), 
+                       sgridded.time.data,sgridded.steric_height_true-sgridded.steric_height_true.mean())
+            ax[j].set_title('Steric height')
+            ax[j].set_ylabel('m')
+            
+            # SSH
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.Eta)
+            ax[j].set_title('SSH')
+            ax[j].set_ylabel('m')
+            
+            # MLD
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.KPPhbl)
+            ax[j].set_title('MLD')
+            ax[j].set_ylabel('m')
+            ax[j].invert_yaxis()
+            
+            # surface heat flux
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.oceQnet, sgridded.time,sgridded.oceQsw)
+            ax[j].set_title('Surface heat flux into the ocean')
+            ax[j].legend(['total','shortwave'])
+            ax[j].set_ylabel('W m-2')
+            
+            # surface FW flux
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.oceFWflx)
+            ax[j].set_title('Surface freshwater flux into the ocean') 
+            ax[j].set_ylabel('kg m-2 s-1')
+            
+            # horiz line:
+            for j in range(nr):
+                ax[j].axhline(0, color='grey', linewidth=0.8)
+            
+    
+    
+    
+    else:
+            vbls2d = ['Eta', 'KPPhbl', 'PhiBot', 'oceFWflx', 'oceQnet', 'oceQsw', 'oceFWflx']
+            
+            #nr = len(vbls2d) # number of rows
+            nr=4
+            fig,ax=plt.subplots(nr,figsize=(8,len(vbls2d)*2),constrained_layout=True)
+            
+            j=0 #initialising first graph
+            # SSH
+            ax[j].plot(sgridded.time,sgridded.Eta)
+            ax[j].set_title('SSH')
+            ax[j].set_ylabel('m')
+            
+            # MLD
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.KPPhbl)
+            ax[j].set_title('MLD')
+            ax[j].set_ylabel('m')
+            ax[j].invert_yaxis()
+            
+            # surface heat flux
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.oceQnet, sgridded.time,sgridded.oceQsw)
+            ax[j].set_title('Surface heat flux into the ocean')
+            ax[j].legend(['total','shortwave'])
+            ax[j].set_ylabel('W m-2')
+            
+            # surface FW flux
+            j+=1
+            ax[j].plot(sgridded.time,sgridded.oceFWflx)
+            ax[j].set_title('Surface freshwater flux into the ocean') 
+            ax[j].set_ylabel('kg m-2 s-1')
+            
+            # horiz line:
+            for j in range(nr):
+                ax[j].axhline(0, color='grey', linewidth=0.8)
+        
+    
+     # ---- generate name of file to save outputs in ---- 
+    filename_base = (f'OSSE_{RegionName}_{sampling_details["SAMPLING_STRATEGY"]}_{start_date}_to_{start_date + timedelta(ndays)}_maxdepth{int(sampling_parameters["zrange"][1])}')
+    filename_out_base = (f'{outputdir}/{filename_base}')
+
+    # save
+    if SAVE_FIGURES:
+        #plt.savefig(figdir + filename_base + '_2D.png', dpi=400, transparent=False, facecolor='white')
+        plt.savefig(figdir + '/' + filename_base + start_date + '_2D.png', dpi=400, transparent=False, facecolor='white') 
+    plt.show()
+ 
+
+def vis_2D_M( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a 2D visualisation for the interpolated dataset 'ds' along the survey track given by the survey coordinates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+    
+    """
+    #find the end date
+    end_date= start_date + timedelta(ndays)
+    ending =end_date-timedelta(days=0)
+    #start_date = date(2012,1,1)
+    
+    for dt in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=ending):
+        start_date = dt
+        ndays = 30
+        vis_2D( RegionName, datadir, start_date, ndays, sampling_details)
+        print (dt)
+        
+        
+def vis_survey_M( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for each month between the start and end dates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+        
+    Raises: 
+        FileNotFoundError: If the Earthdata account details entered are incorrect or the path to directory is incorrect.
+    
+    Note*:
+        Please give start date from the starting of the month.
+    """""
+    #find the end date
+    end_date= start_date + timedelta(ndays)
+    ending =end_date-timedelta(days=0)
+    for dt in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=ending):
+        start_date= dt
+        ndays=30
+        vis_survey(RegionName, datadir, start_date, ndays, sampling_details)
+        print (dt)
+
+def vis_3D_M( RegionName, datadir, start_date, ndays, sampling_details):
+    """Creates a visualisation for the interpolated dataset 'ds' along the survey track given by the survey coordinates.
+    Args:
+        RegionName (str): It can be selected from WesternMed, ROAM_MIZ, NewCaledonia, NWPacific, BassStrait, RockallTrough, ACC_SMST, MarmaraSea, LabradorSea, CapeBasin
+        datadir (str): Directory where input models are stored
+        start_date (datetime): Starting date for downloading data
+        ndays (int): Number of days to be downloaded from the start date
+        sampling_details (dict):Includes number of days, waypoints, and depth range, horizontal and vertical platform speed. These can typical (default) or user-specified, in the case where user specfies only some of the details the default values will be used for rest.
+    Returns:
+        None
+    
+    """
+    #find the end date
+    end_date= start_date + timedelta(ndays)
+    ending =end_date-timedelta(days=0)
+    #start_date = date(2012,1,1)
+    
+    for dt in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=ending):
+        start_date= dt
+        ndays=30
+        vis_3D( RegionName, datadir, start_date, ndays, sampling_details)
+        print (dt)
