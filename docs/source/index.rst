@@ -11,8 +11,7 @@ Oceanliner
    :caption: Contents:
    
    introduction
-   installation_guide
-   oceanliner_functions
+   modules
    license
 
 
