@@ -94,7 +94,6 @@ urllib3==1.26.12
 webencodings==0.5.1
 Werkzeug==2.2.1
 wrapt==1.14.1
-xarray==2022.6.0
 xgcm==0.6.1
 yarl==1.7.2
 zict==2.2.0
