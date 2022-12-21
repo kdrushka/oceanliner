@@ -64,7 +64,6 @@ param==1.12.2
 partd==1.2.0
 patsy==0.5.2
 Pillow==9.2.0
-plotnine==0.9.0
 pockets==0.9.1
 pooch==1.6.0
 proj==0.2.0
