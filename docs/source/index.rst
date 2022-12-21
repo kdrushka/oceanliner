@@ -10,7 +10,10 @@ Welcome to Oceanliner's documentation!
    :maxdepth: 2
    :caption: Contents:
    
+   introduction
+   installation_guide
    oceanliner_functions
+   license
 
 
 
