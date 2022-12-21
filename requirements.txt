@@ -56,7 +56,7 @@ msgpack==1.0.4
 multidict==6.0.2
 multipledispatch==0.6.0
 netCDF4==1.6.0
-numpy==1.21.0
+numpy>=1.1.0
 palettable==3.3.0
 pandas==1.3.5
 panel==0.13.1
