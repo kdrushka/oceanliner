@@ -71,7 +71,7 @@ pyct==0.4.8
 pyviz-comms==2.2.0
 PyYAML==6.0
 s3fs==2022.5.0
-scikit-learn==1.1.1
+scikit-learn==1.0
 snowballstemmer==2.2.0
 sortedcontainers==2.4.0
 Sphinx==5.1.1
