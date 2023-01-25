@@ -3,17 +3,18 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../..'))
+# -- Project information -----------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Oceanliner'
 copyright = '2022, Kyla Drushka'
 author = 'Kyla Drushka'
 release = '0.0.1'
+
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -30,3 +31,9 @@ exclude_patterns = []
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ['_static']
+html_static_path = ['_static']
+html_logo = "nasa_logo.png"
+html_theme_options = {
+    'logo_only': True,
+    'display_version': False,
+}
