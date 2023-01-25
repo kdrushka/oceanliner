@@ -1,7 +1,8 @@
 Introduction
 ==================
 
-Observing System Simulation experiments (OSSEs) to subsample high-resolution model output as if by gliders, ships, or other in situ platforms
+Oceanliner is a tool for performing Observing System Simulation experiments (OSSEs), which subsample high-resolution model output as if by gliders, ships, or other in situ platforms. It is being developed as part of a NASA-funded [SWOT Science Team](https://swot.jpl.nasa.gov/science/oceanography/) project to develop tools for planning in situ oceanographic campaigns that will take place after SWOT's launch, notably as part of the [Adopt-a-Crossover](https://www.swot-adac.org) program. 
+
 
 
 
